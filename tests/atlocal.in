@@ -1,0 +1,104 @@
+# -*- shell-script -*-
+HAVE_OPENSSL='@HAVE_OPENSSL@'
+HAVE_PYTHON='@HAVE_PYTHON@'
+EGREP='@EGREP@'
+PERL='@PERL@'
+
+if test x"$PYTHON" = x; then
+    PYTHON='@PYTHON@'
+fi
+
+PYTHONPATH=$abs_top_srcdir/python:$abs_top_builddir/tests:$PYTHONPATH
+export PYTHONPATH
+
+PYTHONIOENCODING=utf_8
+export PYTHONIOENCODING
+
+# PYTHONDONTWRITEBYTECODE=yes keeps Python 2.6+ from creating .pyc and .pyo
+# files.  Creating .py[co] works OK for any given version of Open
+# vSwitch, but it causes trouble if you switch from a version with
+# foo/__init__.py into an (older) version with plain foo.py, since
+# foo/__init__.pyc will cause Python to ignore foo.py.
+#
+# Python before version 2.6 always creates .pyc files, so if you develop
+# with such an older version then you're out of luck.
+PYTHONDONTWRITEBYTECODE=yes
+export PYTHONDONTWRITEBYTECODE
+
+# Test whether the current working directory name is all ASCII
+# characters.  Some Python code doesn't tolerate non-ASCII characters
+# in filenames very well, so if the current working directory is
+# non-ASCII then we skip the tests that run those programs.
+#
+# This would be just papering over a real problem, except that the
+# tests that we skip are launched from initscripts and thus normally
+# run in system directories with ASCII names.  (This problem only came
+# up at all because the Debian autobuilders do build in a top-level
+# directory named /«BUILDDIR».)
+case `pwd | tr -d ' -~'` in
+    '') non_ascii_cwd=false ;;
+    *) non_ascii_cwd=true
+esac
+
+if test $HAVE_PYTHON = yes; then
+    if python -m argparse 2>/dev/null; then
+        :
+    else
+        PYTHONPATH=$PYTHONPATH:$abs_top_srcdir/python/compat
+        export PYTHONPATH
+    fi
+fi
+
+# Enable malloc debugging features.
+case `uname` in
+Linux)
+    MALLOC_PERTURB_=165; export MALLOC_PERTURB_
+
+    # Before glibc 2.11, the feature enabled by MALLOC_CHECK_ was not
+    # thread-safe.  See https://bugzilla.redhat.com/show_bug.cgi?id=585674 and
+    # in particular the patch attached there, which was applied to glibc CVS as
+    # "Restore locking in free_check." between 1.11 and 1.11.1.
+    vswitchd=$abs_top_builddir/vswitchd/ovs-vswitchd
+    glibc=`ldd $vswitchd | sed -n 's/^	libc\.[^ ]* => \([^ ]*\) .*/\1/p'`
+    glibc_version=`$glibc | sed -n '1s/.*version \([0-9]\{1,\}\.[0-9]\{1,\}\).*/\1/p'`
+    case $glibc_version in
+        2.[0-9] | 2.1[01]) mcheck=disabled ;;
+        *) mcheck=enabled ;;
+    esac
+    if test $mcheck = enabled; then
+        MALLOC_CHECK_=2; export MALLOC_CHECK_
+    else
+        echo >&2 "glibc $glibc_version detected, disabling memory checking"
+    fi
+    ;;
+FreeBSD)
+    case `uname -r` in
+    [789].*)
+        MALLOC_CONF=AJ
+        ;;
+    *)
+        MALLOC_CONF=abort:true,junk:true,redzone:true
+        ;;
+    esac
+    export MALLOC_CONF
+esac
+
+# The name of loopback interface 
+case `uname` in
+Linux)
+    LOOPBACK_INTERFACE=lo
+    ;;
+FreeBSD|NetBSD)
+    LOOPBACK_INTERFACE=lo0
+    ;;
+esac
+
+# Check for MINGW platform.
+case `uname` in
+MINGW*)
+    IS_WIN32="yes"
+    ;;
+*)
+    IS_WIN32="no"
+    ;;
+esac
