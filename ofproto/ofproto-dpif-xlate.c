@@ -17,7 +17,8 @@
 #include "ofproto/ofproto-dpif-xlate.h"
 
 #include <errno.h>
-
+#include <stdlib.h>
+#include <time.h>
 #include "bfd.h"
 #include "bitmap.h"
 #include "bond.h"
@@ -293,7 +294,7 @@ struct xc_entry {
 struct xlate_cache {
     struct ofpbuf entries;
 };
-
+static bool is_srand_initialized = false;
 static struct hmap xbridges = HMAP_INITIALIZER(&xbridges);
 static struct hmap xbundles = HMAP_INITIALIZER(&xbundles);
 static struct hmap xports = HMAP_INITIALIZER(&xports);
@@ -937,29 +938,32 @@ group_first_live_bucket(const struct xlate_ctx *ctx,
 
 static const struct ofputil_bucket *
 group_best_live_bucket(const struct xlate_ctx *ctx,
-                       const struct group_dpif *group,
-                       uint32_t basis)
+                   const struct group_dpif *group)
 {
-    const struct ofputil_bucket *best_bucket = NULL;
-    uint32_t best_score = 0;
-    int i = 0;
-
-    const struct ofputil_bucket *bucket;
+    uint32_t rand_num = 0, sum = 0;
+    const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
+
+    // initialize random seed once
+    if (!is_srand_initialized) {
+        srand(time(NULL));
+        is_srand_initialized = true;
+    }
+
+    // generate a random number in [1, 1000]
+    rand_num = (rand() % 1000) + 1;
 
     group_dpif_get_buckets(group, &buckets);
     LIST_FOR_EACH (bucket, list_node, buckets) {
         if (bucket_is_alive(ctx, bucket, 0)) {
-            uint32_t score = (hash_int(i, basis) & 0xffff) * bucket->weight;
-            if (score >= best_score) {
-                best_bucket = bucket;
-                best_score = score;
+            sum += bucket->weight;
+            if (rand_num <= sum) {
+                return bucket; // return this bucket
             }
         }
-        i++;
     }
 
-    return best_bucket;
+    return bucket; // return NULL
 }
 
 static bool
@@ -2215,15 +2219,17 @@ xlate_ff_group(struct xlate_ctx *ctx, struct group_dpif *group)
     }
 }
 
+
 static void
 xlate_select_group(struct xlate_ctx *ctx, struct group_dpif *group)
 {
     struct flow_wildcards *wc = &ctx->xout->wc;
     const struct ofputil_bucket *bucket;
-    uint32_t basis;
 
-    basis = hash_mac(ctx->xin->flow.dl_dst, 0, 0);
-    bucket = group_best_live_bucket(ctx, group, basis);
+    // Needed to avoid caching
+    ctx->xout->slow |= SLOW_CONTROLLER;
+    
+    bucket = group_best_live_bucket(ctx, group);
     if (bucket) {
         memset(&wc->masks.dl_dst, 0xff, sizeof wc->masks.dl_dst);
         xlate_group_bucket(ctx, bucket);
