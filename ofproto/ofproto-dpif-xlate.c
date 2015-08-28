@@ -936,31 +936,46 @@ group_first_live_bucket(const struct xlate_ctx *ctx,
     return NULL;
 }
 
+static int counter = 0;
+static int chosen_bucket = 0;
 static const struct ofputil_bucket *
 group_best_live_bucket(const struct xlate_ctx *ctx,
                    const struct group_dpif *group)
 {
     uint32_t rand_num = 0, sum = 0;
+    int j;
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
-
     // initialize random seed once
-    if (!is_srand_initialized) {
-        srand(time(NULL));
-        is_srand_initialized = true;
-    }
+    // if (!is_srand_initialized) {
+        // srand(time(NULL));
+        // is_srand_initialized = true;
+    // }
 
     // generate a random number in [1, 1000]
-    rand_num = (rand() % 1000) + 1;
+    // rand_num = (rand() % 1000) + 1;
+    if(chosen_bucket == 0 && counter == 6 ){
+        chosen_bucket = 1;
+        counter = 0;
+    }
+    else if(chosen_bucket ==1 && counter==4){
+        chosen_bucket = 0;
+        counter == 0;
+    }
+    counter ++;
 
+    j = 0;
     group_dpif_get_buckets(group, &buckets);
     LIST_FOR_EACH (bucket, list_node, buckets) {
-        if (bucket_is_alive(ctx, bucket, 0)) {
-            sum += bucket->weight;
-            if (rand_num <= sum) {
-                return bucket; // return this bucket
+        if(chosen_bucket==j){
+            if (bucket_is_alive(ctx, bucket, 0)) {
+                // sum += bucket->weight;
+                // if (rand_num <= sum) {
+                    return bucket; // return this bucket
+                // }
             }
         }
+        j++;
     }
 
     return bucket; // return NULL
