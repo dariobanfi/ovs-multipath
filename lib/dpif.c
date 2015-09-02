@@ -16,6 +16,9 @@
 
 #include <config.h>
 #include "dpif-provider.h"
+#include <inttypes.h>
+#include <syslog.h>
+
 
 #include <ctype.h>
 #include <errno.h>

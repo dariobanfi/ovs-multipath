@@ -72,7 +72,7 @@ ofp_packet_to_string(const void *data, size_t len)
 
     if (flow.nw_proto == IPPROTO_TCP && l4_size >= TCP_HEADER_LEN) {
         struct tcp_header *th = ofpbuf_l4(&buf);
-        ds_put_format(&ds, " tcp_csum:%"PRIx16, ntohs(th->tcp_csum));
+        ds_put_format(&ds, " tcp_seq:%"PRIx16, ntohl(get_16aligned_be32(&th->tcp_seq)));
     } else if (flow.nw_proto == IPPROTO_UDP && l4_size >= UDP_HEADER_LEN) {
         struct udp_header *uh = ofpbuf_l4(&buf);
         ds_put_format(&ds, " udp_csum:%"PRIx16, ntohs(uh->udp_csum));

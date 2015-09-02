@@ -13,9 +13,9 @@
  * limitations under the License. */
 
 #include <config.h>
-
+#include <syslog.h>
 #include "ofproto/ofproto-dpif-xlate.h"
-
+#include "lib/ofp-print.c"
 #include <errno.h>
 #include <stdlib.h>
 #include <time.h>
@@ -77,7 +77,7 @@ struct xbridge {
     struct hmap xports;           /* Indexed by ofp_port. */
 
     char *name;                   /* Name used in log messages. */
-    struct dpif *dpif;            /* Datapath interface. */
+    struct dpif *dpif;            /* Datapath interface. */ 
     struct mac_learning *ml;      /* Mac learning handle. */
     struct mbridge *mbridge;      /* Mirroring. */
     struct dpif_sflow *sflow;     /* SFlow handle, or null. */
@@ -937,7 +937,7 @@ group_first_live_bucket(const struct xlate_ctx *ctx,
 }
 
 static int counter = 0;
-static int chosen_bucket = 0;
+static int chosen_bucket = 1;
 static const struct ofputil_bucket *
 group_best_live_bucket(const struct xlate_ctx *ctx,
                    const struct group_dpif *group)
@@ -946,21 +946,22 @@ group_best_live_bucket(const struct xlate_ctx *ctx,
     int j;
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
-    // initialize random seed once
-    // if (!is_srand_initialized) {
-        // srand(time(NULL));
-        // is_srand_initialized = true;
-    // }
 
-    // generate a random number in [1, 1000]
-    // rand_num = (rand() % 1000) + 1;
+    openlog("slog", LOG_PID|LOG_CONS, LOG_USER); 
+
+    if (ctx->xin->packet != NULL) {
+        char * str = ofp_packet_to_string(ofpbuf_data(ctx->xin->packet), ofpbuf_size(ctx->xin->packet));
+        syslog(LOG_INFO, "%s", str);
+    }
+
+
     if(chosen_bucket == 0 && counter == 6 ){
         chosen_bucket = 1;
         counter = 0;
     }
-    else if(chosen_bucket ==1 && counter==4){
+    else if(chosen_bucket == 1 && counter==10){
         chosen_bucket = 0;
-        counter == 0;
+        counter = 0;
     }
     counter ++;
 
@@ -977,6 +978,8 @@ group_best_live_bucket(const struct xlate_ctx *ctx,
         }
         j++;
     }
+
+    closelog(); 
 
     return bucket; // return NULL
 }
@@ -2241,8 +2244,8 @@ xlate_select_group(struct xlate_ctx *ctx, struct group_dpif *group)
     struct flow_wildcards *wc = &ctx->xout->wc;
     const struct ofputil_bucket *bucket;
 
-    // Needed to avoid caching
-    ctx->xout->slow |= SLOW_CONTROLLER;
+    
+    ctx->xout->slow |= SLOW_ACTION;
     
     bucket = group_best_live_bucket(ctx, group);
     if (bucket) {
