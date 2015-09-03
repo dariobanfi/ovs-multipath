@@ -182,7 +182,7 @@ struct xlate_ctx {
     /* The rule that we are currently translating, or NULL. */
     struct rule_dpif *rule;
 
-    /* Resubmit statistics, via xlate_table_action(). */
+    /* Resubmgit statistics, via xlate_table_action(). */
     int recurse;                /* Current resubmit nesting depth. */
     int resubmits;              /* Total number of resubmits. */
     bool in_group;              /* Currently translating ofgroup, if true. */
@@ -294,7 +294,7 @@ struct xc_entry {
 struct xlate_cache {
     struct ofpbuf entries;
 };
-static bool is_srand_initialized = false;
+
 static struct hmap xbridges = HMAP_INITIALIZER(&xbridges);
 static struct hmap xbundles = HMAP_INITIALIZER(&xbundles);
 static struct hmap xports = HMAP_INITIALIZER(&xports);
@@ -327,6 +327,38 @@ static bool dscp_from_skb_priority(const struct xport *, uint32_t skb_priority,
 
 static struct xc_entry *xlate_cache_add_entry(struct xlate_cache *xc,
                                               enum xc_type type);
+
+static uint32_t get_decimal_little_endian(uint16_t lo, uint16_t hi){
+    uint32_t decimal_32;
+    uint16_t le_lo = (lo<<8) | (lo>>8) ;
+    uint16_t le_hi = (hi<<8) | (hi>>8) ;
+    decimal_32 = (le_hi << 16) + le_lo;
+    return decimal_32 ;
+}
+
+
+static uint32_t get_tcp_seqnum(const struct ofpbuf *pkt){
+    struct tcp_header *th = ofpbuf_l4(pkt);
+    if(th){
+        uint32_t seq = get_decimal_little_endian((uint16_t)th->tcp_seq.lo, (uint16_t)th->tcp_seq.hi); 
+        return seq;
+    }
+    else{
+        return 0;
+    }
+}
+
+static int compare_packet(struct ofpbuf * pkt1, struct ofpbuf *pkt2){
+    uint32_t seq1 = get_tcp_seqnum(pkt1); 
+    uint32_t seq2 = get_tcp_seqnum(pkt2); 
+
+    if(seq1<seq2)
+        return 1; // <
+    else if(seq2<seq1)
+        return -1; // >
+    else
+        return 0; // ==
+}
 
 void
 xlate_ofproto_set(struct ofproto_dpif *ofproto, const char *name,
@@ -942,17 +974,16 @@ static const struct ofputil_bucket *
 group_best_live_bucket(const struct xlate_ctx *ctx,
                    const struct group_dpif *group)
 {
-    uint32_t rand_num = 0, sum = 0;
     int j;
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
 
     openlog("slog", LOG_PID|LOG_CONS, LOG_USER); 
 
-    if (ctx->xin->packet != NULL) {
-        char * str = ofp_packet_to_string(ofpbuf_data(ctx->xin->packet), ofpbuf_size(ctx->xin->packet));
-        syslog(LOG_INFO, "%s", str);
-    }
+    // if (ctx->xin->packet != NULL) {
+    //     char * str = ofp_packet_to_string(ofpbuf_data(ctx->xin->packet), ofpbuf_size(ctx->xin->packet));
+    //     syslog(LOG_INFO, "%s", str);
+    // }
 
 
     if(chosen_bucket == 0 && counter == 6 ){
@@ -1859,6 +1890,27 @@ process_special(struct xlate_ctx *ctx, const struct flow *flow,
     }
 }
 
+
+
+/* Counts and returns the number of OVS_ACTION_ATTR_OUTPUT actions in
+ * 'odp_actions'. */
+static int
+count_output_actions(const struct ofpbuf *odp_actions)
+{
+    const struct nlattr *a;
+    size_t left;
+    int n = 0;
+
+    NL_ATTR_FOR_EACH_UNSAFE (a, left, ofpbuf_data(odp_actions),
+                             ofpbuf_size(odp_actions)) {
+        if (a->nla_type == OVS_ACTION_ATTR_OUTPUT) {
+            n++;
+        }
+    }
+    return n;
+}
+
+
 static void
 compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
                         bool check_stp)
@@ -2031,13 +2083,22 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
             nl_msg_put_u32(&ctx->xout->odp_actions, OVS_ACTION_ATTR_RECIRC,
                            xr->recirc_id);
         } else {
+                    
+            openlog("slog", LOG_PID|LOG_CONS, LOG_USER); 
+
+            // char * str = ofpbuf_to_string(&ctx->xout->odp_actions);
+            // syslog(LOG_INFO, "I am here mofos %"PRIu32, get_tcp_seqnum(&ctx->xout->odp_actions));
+            syslog(LOG_INFO, "mofas %d" , count_output_actions(&ctx->xout->odp_actions));
             nl_msg_put_odp_port(&ctx->xout->odp_actions, OVS_ACTION_ATTR_OUTPUT,
                                 out_port);
+            closelog();
+
         }
 
         ctx->sflow_odp_port = odp_port;
         ctx->sflow_n_outputs++;
         ctx->xout->nf_output_iface = ofp_port;
+
     }
 
  out:
@@ -2213,17 +2274,77 @@ xlate_group_bucket(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
     ctx->exit = false;
 }
 
-static void
-xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
+
+static int inserted_items = 0;
+static struct ofpbuf *minibuffer[5];
+
+static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
 {
-    const struct ofputil_bucket *bucket;
-    const struct list *buckets;
+    const struct ofputil_bucket *all_bucket;
+    struct ofpbuf *mybuffedpacket;
+    struct tcp_header *th;
+    int j;
 
-    group_dpif_get_buckets(group, &buckets);
+    ctx->xout->slow |= SLOW_CONTROLLER;
 
-    LIST_FOR_EACH (bucket, list_node, buckets) {
-        xlate_group_bucket(ctx, bucket);
+
+    all_bucket = group_first_live_bucket(ctx, group, 0);
+
+    if(all_bucket){
+
+
+
+        // if(inserted_items==4){
+        //     syslog(LOG_INFO, "minibuffer full, sorting & emptying it");
+
+        //     for(j=0;j<inserted_items;j++){
+        //         if(minibuffer[j]){
+        //             // syslog(LOG_INFO, "emptying item %d from bucket with seq %" PRIu32, j, get_tcp_seqnum(minibuffer[j]));
+        //             ctx->xin->packet = NULL;
+        //             xlate_group_bucket(ctx, all_bucket);
+        //             free(minibuffer[j]);
+        //         }
+        //         else{
+        //             syslog(LOG_INFO, "Wtf, why was it null?");   
+        //         }
+
+        //     }
+        //     inserted_items = 0;
+        // }
+        // else{
+        //     if(ctx->xin->packet && (th = ofpbuf_l4(ctx->xin->packet))){
+        //         mybuffedpacket = (struct ofpbuf *)malloc(sizeof(struct ofpbuf));
+        //         if (mybuffedpacket == NULL)
+        //             syslog(LOG_INFO, "Failed to create mybuffedpacket");   
+
+
+        //         memcpy(mybuffedpacket, ctx->xin->packet, sizeof(struct ofpbuf));
+        //         minibuffer[inserted_items] = mybuffedpacket;
+        //         inserted_items++;
+        //         uint32_t seqnum = get_tcp_seqnum(mybuffedpacket); 
+        //         // syslog(LOG_INFO, "Inserted item %d in minibuffer seq: %"PRIu32, inserted_items, seqnum);   
+
+        //     }
+        //     else{
+        //         syslog(LOG_INFO, "Packet null, just forwarding");   
+                // xlate_send_packet( , );
+                ctx->xin->packet = NULL;
+                xlate_group_bucket(ctx, all_bucket);
+            // xlate_normal(ctx);
+            // }
+        // }
+
     }
+
+
+
+
+    else{
+        syslog(LOG_INFO, "The bucket was null");   
+    }
+
+
+
 }
 
 static void
@@ -3295,23 +3416,6 @@ netdev_max_backlog(void)
     return max_backlog;
 }
 
-/* Counts and returns the number of OVS_ACTION_ATTR_OUTPUT actions in
- * 'odp_actions'. */
-static int
-count_output_actions(const struct ofpbuf *odp_actions)
-{
-    const struct nlattr *a;
-    size_t left;
-    int n = 0;
-
-    NL_ATTR_FOR_EACH_UNSAFE (a, left, ofpbuf_data(odp_actions),
-                             ofpbuf_size(odp_actions)) {
-        if (a->nla_type == OVS_ACTION_ATTR_OUTPUT) {
-            n++;
-        }
-    }
-    return n;
-}
 
 /* Returns true if 'odp_actions' contains more output actions than the datapath
  * can reliably handle in one go.  On Linux, this is the value of the
