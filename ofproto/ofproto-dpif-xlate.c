@@ -295,6 +295,9 @@ struct xlate_cache {
     struct ofpbuf entries;
 };
 
+static bool is_srand_initialized = false;
+
+
 static struct hmap xbridges = HMAP_INITIALIZER(&xbridges);
 static struct hmap xbundles = HMAP_INITIALIZER(&xbundles);
 static struct hmap xports = HMAP_INITIALIZER(&xports);
@@ -968,23 +971,16 @@ group_first_live_bucket(const struct xlate_ctx *ctx,
     return NULL;
 }
 
+
 static int counter = 0;
 static int chosen_bucket = 1;
 static const struct ofputil_bucket *
-group_best_live_bucket(const struct xlate_ctx *ctx,
-                   const struct group_dpif *group)
-{
+weighted_rr_switching(const struct xlate_ctx *ctx,
+    const struct group_dpif *group){
+
     int j;
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
-
-    openlog("slog", LOG_PID|LOG_CONS, LOG_USER); 
-
-    // if (ctx->xin->packet != NULL) {
-    //     char * str = ofp_packet_to_string(ofpbuf_data(ctx->xin->packet), ofpbuf_size(ctx->xin->packet));
-    //     syslog(LOG_INFO, "%s", str);
-    // }
-
 
     if(chosen_bucket == 0 && counter == 6 ){
         chosen_bucket = 1;
@@ -1001,19 +997,54 @@ group_best_live_bucket(const struct xlate_ctx *ctx,
     LIST_FOR_EACH (bucket, list_node, buckets) {
         if(chosen_bucket==j){
             if (bucket_is_alive(ctx, bucket, 0)) {
-                // sum += bucket->weight;
-                // if (rand_num <= sum) {
-                    return bucket; // return this bucket
-                // }
+                return bucket;
+            }
+            else{
+                // TODO: Randomly choose another bucker for fault-tolerance
             }
         }
         j++;
     }
 
-    closelog(); 
+    return bucket;
+}
 
+static const struct ofputil_bucket *
+weighted_probabilistic_switching(const struct xlate_ctx *ctx,
+    const struct group_dpif *group){
+    uint32_t rand_num = 0, sum = 0;
+    const struct ofputil_bucket *bucket = NULL;
+    const struct list *buckets;
+
+    // initialize random seed once
+    if (!is_srand_initialized) {
+        srand(time(NULL));
+        is_srand_initialized = true;
+    }
+
+    // generate a random number in [1, 1000]
+    rand_num = (rand() % 1000) + 1;
+
+    group_dpif_get_buckets(group, &buckets);
+    LIST_FOR_EACH (bucket, list_node, buckets) {
+        if (bucket_is_alive(ctx, bucket, 0)) {
+            sum += bucket->weight;
+            if (rand_num <= sum) {
+                return bucket; // return this bucket
+            }
+        }
+    }
     return bucket; // return NULL
 }
+
+static const struct ofputil_bucket *
+group_best_live_bucket(const struct xlate_ctx *ctx,
+                   const struct group_dpif *group)
+{
+    // return weighted_probabilistic_switching(ctx, group);
+    return weighted_rr_switching(ctx, group);
+}
+
 
 static bool
 xbundle_trunks_vlan(const struct xbundle *bundle, uint16_t vlan)
@@ -2083,16 +2114,8 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
             nl_msg_put_u32(&ctx->xout->odp_actions, OVS_ACTION_ATTR_RECIRC,
                            xr->recirc_id);
         } else {
-                    
-            openlog("slog", LOG_PID|LOG_CONS, LOG_USER); 
-
-            // char * str = ofpbuf_to_string(&ctx->xout->odp_actions);
-            // syslog(LOG_INFO, "I am here mofos %"PRIu32, get_tcp_seqnum(&ctx->xout->odp_actions));
-            syslog(LOG_INFO, "mofas %d" , count_output_actions(&ctx->xout->odp_actions));
             nl_msg_put_odp_port(&ctx->xout->odp_actions, OVS_ACTION_ATTR_OUTPUT,
                                 out_port);
-            closelog();
-
         }
 
         ctx->sflow_odp_port = odp_port;
@@ -2276,8 +2299,7 @@ xlate_group_bucket(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
 
 
 static int inserted_items = 0;
-static struct ofpbuf *minibuffer[5];
-
+static struct ofpbuf *minibuffer[30];
 static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
 {
     const struct ofputil_bucket *all_bucket;
@@ -2285,7 +2307,7 @@ static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
     struct tcp_header *th;
     int j;
 
-    ctx->xout->slow |= SLOW_CONTROLLER;
+    ctx->xout->slow |= SLOW_ACTION;
 
 
     all_bucket = group_first_live_bucket(ctx, group, 0);
@@ -2294,45 +2316,42 @@ static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
 
 
 
-        // if(inserted_items==4){
-        //     syslog(LOG_INFO, "minibuffer full, sorting & emptying it");
+        if(inserted_items==30){
+            syslog(LOG_INFO, "minibuffer full, sorting & emptying it");
 
-        //     for(j=0;j<inserted_items;j++){
-        //         if(minibuffer[j]){
-        //             // syslog(LOG_INFO, "emptying item %d from bucket with seq %" PRIu32, j, get_tcp_seqnum(minibuffer[j]));
-        //             ctx->xin->packet = NULL;
-        //             xlate_group_bucket(ctx, all_bucket);
-        //             free(minibuffer[j]);
-        //         }
-        //         else{
-        //             syslog(LOG_INFO, "Wtf, why was it null?");   
-        //         }
+            for(j=0;j<inserted_items;j++){
+                if(minibuffer[j]){
+                    syslog(LOG_INFO, "emptying item %d from bucket with seq %" PRIu32, j, get_tcp_seqnum(minibuffer[j]));
+                    xlate_group_bucket(ctx, all_bucket);
+                    ofpbuf_delete(minibuffer[j]);
+                }
+                else{
+                    syslog(LOG_INFO, "Wtf, why was it null?");   
+                }
 
-        //     }
-        //     inserted_items = 0;
-        // }
-        // else{
-        //     if(ctx->xin->packet && (th = ofpbuf_l4(ctx->xin->packet))){
-        //         mybuffedpacket = (struct ofpbuf *)malloc(sizeof(struct ofpbuf));
-        //         if (mybuffedpacket == NULL)
-        //             syslog(LOG_INFO, "Failed to create mybuffedpacket");   
+            }
+            inserted_items = 0;
+        }
+        else{
+
+            if(ctx->xin->packet && (th = ofpbuf_l4(ctx->xin->packet))){
+                mybuffedpacket = ofpbuf_clone(ctx->xin->packet);
+
+                if (mybuffedpacket == NULL)
+                    syslog(LOG_INFO, "Failed to create mybuffedpacket");   
 
 
-        //         memcpy(mybuffedpacket, ctx->xin->packet, sizeof(struct ofpbuf));
-        //         minibuffer[inserted_items] = mybuffedpacket;
-        //         inserted_items++;
-        //         uint32_t seqnum = get_tcp_seqnum(mybuffedpacket); 
-        //         // syslog(LOG_INFO, "Inserted item %d in minibuffer seq: %"PRIu32, inserted_items, seqnum);   
+                minibuffer[inserted_items] = mybuffedpacket;
+                inserted_items++;
+                uint32_t seqnum = get_tcp_seqnum(mybuffedpacket); 
+                syslog(LOG_INFO, "Inserted item %d in minibuffer seq: %"PRIu32, inserted_items, seqnum);   
 
-        //     }
-        //     else{
-        //         syslog(LOG_INFO, "Packet null, just forwarding");   
-                // xlate_send_packet( , );
-                ctx->xin->packet = NULL;
+            }
+            else{
+                syslog(LOG_INFO, "Packet null, just forwarding");   
                 xlate_group_bucket(ctx, all_bucket);
-            // xlate_normal(ctx);
-            // }
-        // }
+            }
+        }
 
     }
 
