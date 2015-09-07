@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 
+#include <syslog.h>
+
+
 #include <config.h>
 #include "odp-execute.h"
 #include <linux/openvswitch.h>
@@ -29,6 +32,39 @@
 #include "flow.h"
 #include "unaligned.h"
 #include "util.h"
+
+static uint32_t get_decimal_little_endian(uint16_t lo, uint16_t hi){
+    uint32_t decimal_32;
+    uint16_t le_lo = (lo<<8) | (lo>>8) ;
+    uint16_t le_hi = (hi<<8) | (hi>>8) ;
+    decimal_32 = (le_hi << 16) + le_lo;
+    return decimal_32 ;
+}
+
+
+static uint32_t get_tcp_seqnum(const struct ofpbuf *pkt){
+     struct tcp_header *th;
+    if(pkt && (th = ofpbuf_l4(pkt))){    
+        uint32_t seq = get_decimal_little_endian((uint16_t)th->tcp_seq.lo, (uint16_t)th->tcp_seq.hi); 
+        return seq;
+    }
+    else{
+        return 0;
+    }
+}
+
+static bool is_tcp(const struct ofpbuf *pkt){
+     struct ip_header *ih;
+     if((ih = ofpbuf_l3(pkt))){
+        if(ih->ip_proto==6){
+            return true;
+        }
+     }
+     return false;
+}
+
+
+
 
 static void
 odp_eth_set_addrs(struct ofpbuf *packet,
@@ -73,6 +109,8 @@ odp_execute_set_action(struct ofpbuf *packet, const struct nlattr *a,
     const struct ovs_key_tcp *tcp_key;
     const struct ovs_key_udp *udp_key;
     const struct ovs_key_sctp *sctp_key;
+
+   
 
     switch (type) {
     case OVS_KEY_ATTR_PRIORITY:
@@ -149,6 +187,8 @@ odp_execute_set_action(struct ofpbuf *packet, const struct nlattr *a,
     default:
         OVS_NOT_REACHED();
     }
+
+
 }
 
 static void
@@ -200,6 +240,9 @@ odp_execute_actions__(void *dp, struct ofpbuf *packet, bool steal,
 {
     const struct nlattr *a;
     unsigned int left;
+
+
+
 
     NL_ATTR_FOR_EACH_UNSAFE (a, left, actions, actions_len) {
         int type = nl_attr_type(a);
@@ -276,14 +319,75 @@ odp_execute_actions__(void *dp, struct ofpbuf *packet, bool steal,
     }
 }
 
+
+
+static int inserted_items = 0;
+static struct ofpbuf *minibuffer[30];
+static int warmed_up = 0;
 void
 odp_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
                     struct pkt_metadata *md,
                     const struct nlattr *actions, size_t actions_len,
                     odp_execute_cb dp_execute_action)
 {
-    odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+    struct ofpbuf *mybuffedpacket;
+    struct tcp_header *th;
+    int j;
+    openlog("slog", LOG_PID|LOG_CONS, LOG_USER); 
+
+    if(!is_tcp(packet)){
+        odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
                           dp_execute_action, false);
+        syslog(LOG_INFO, "Forwarding non-tcp packet!");
+
+        return;
+    }
+
+    if(warmed_up<40){
+        warmed_up++;
+        odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+                          dp_execute_action, false);
+        syslog(LOG_INFO, "Warming up yo");
+        return; 
+    } 
+
+    if(inserted_items==1){
+        syslog(LOG_INFO, "minibuffer full, sorting & emptying it");
+        for(j=0;j<inserted_items;j++){
+            if(minibuffer[j]){
+                syslog(LOG_INFO, "emptying item %d from bucket with seq %" PRIu32, j, get_tcp_seqnum(minibuffer[j]));
+                odp_execute_actions__(dp, minibuffer[j], steal, md, actions, actions_len,
+                  dp_execute_action, false);
+
+                ofpbuf_delete(minibuffer[j]);
+            }
+            else{
+                syslog(LOG_INFO, "Wtf, why was it null?");   
+            }
+        }
+        inserted_items = 0;
+    }
+    else{
+        if(packet &&  (th = ofpbuf_l4(packet))){
+            mybuffedpacket = ofpbuf_clone(packet);
+            if (mybuffedpacket == NULL)
+                syslog(LOG_INFO, "Failed to create mybuffedpacket");   
+            minibuffer[inserted_items] = mybuffedpacket;
+            inserted_items++;
+            uint32_t seqnum = get_tcp_seqnum(mybuffedpacket); 
+            syslog(LOG_INFO, "Inserted item %d in minibuffer seq: %"PRIu32, inserted_items, seqnum);   
+        }
+        else{
+            syslog(LOG_INFO, "Packet null forwarding");
+            odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+                          dp_execute_action, false);
+        }
+    }
+
+
+
+    closelog();
+    
 
     if (!actions_len && steal) {
         /* Drop action. */

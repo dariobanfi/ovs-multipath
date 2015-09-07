@@ -331,25 +331,6 @@ static bool dscp_from_skb_priority(const struct xport *, uint32_t skb_priority,
 static struct xc_entry *xlate_cache_add_entry(struct xlate_cache *xc,
                                               enum xc_type type);
 
-static uint32_t get_decimal_little_endian(uint16_t lo, uint16_t hi){
-    uint32_t decimal_32;
-    uint16_t le_lo = (lo<<8) | (lo>>8) ;
-    uint16_t le_hi = (hi<<8) | (hi>>8) ;
-    decimal_32 = (le_hi << 16) + le_lo;
-    return decimal_32 ;
-}
-
-
-static uint32_t get_tcp_seqnum(const struct ofpbuf *pkt){
-    struct tcp_header *th = ofpbuf_l4(pkt);
-    if(th){
-        uint32_t seq = get_decimal_little_endian((uint16_t)th->tcp_seq.lo, (uint16_t)th->tcp_seq.hi); 
-        return seq;
-    }
-    else{
-        return 0;
-    }
-}
 
 static int compare_packet(struct ofpbuf * pkt1, struct ofpbuf *pkt2){
     uint32_t seq1 = get_tcp_seqnum(pkt1); 
@@ -2316,42 +2297,43 @@ static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
 
 
 
-        if(inserted_items==30){
-            syslog(LOG_INFO, "minibuffer full, sorting & emptying it");
+        // if(inserted_items==30){
+        //     syslog(LOG_INFO, "minibuffer full, sorting & emptying it");
 
-            for(j=0;j<inserted_items;j++){
-                if(minibuffer[j]){
-                    syslog(LOG_INFO, "emptying item %d from bucket with seq %" PRIu32, j, get_tcp_seqnum(minibuffer[j]));
-                    xlate_group_bucket(ctx, all_bucket);
-                    ofpbuf_delete(minibuffer[j]);
-                }
-                else{
-                    syslog(LOG_INFO, "Wtf, why was it null?");   
-                }
+        //     for(j=0;j<inserted_items;j++){
+        //         if(minibuffer[j]){
+        //             syslog(LOG_INFO, "emptying item %d from bucket with seq %" PRIu32, j, get_tcp_seqnum(minibuffer[j]));
+        //             ctx->xin->packet = minibuffer[j];
+        //             xlate_group_bucket(ctx, all_bucket);
+        //             ofpbuf_delete(minibuffer[j]);
+        //         }
+        //         else{
+        //             syslog(LOG_INFO, "Wtf, why was it null?");   
+        //         }
 
-            }
-            inserted_items = 0;
-        }
-        else{
+        //     }
+        //     inserted_items = 0;
+        // }
+        // else{
 
-            if(ctx->xin->packet && (th = ofpbuf_l4(ctx->xin->packet))){
-                mybuffedpacket = ofpbuf_clone(ctx->xin->packet);
+        //     if(ctx->xin->packet && (th = ofpbuf_l4(ctx->xin->packet))){
+        //         mybuffedpacket = ofpbuf_clone(ctx->xin->packet);
 
-                if (mybuffedpacket == NULL)
-                    syslog(LOG_INFO, "Failed to create mybuffedpacket");   
+        //         if (mybuffedpacket == NULL)
+        //             syslog(LOG_INFO, "Failed to create mybuffedpacket");   
 
 
-                minibuffer[inserted_items] = mybuffedpacket;
-                inserted_items++;
-                uint32_t seqnum = get_tcp_seqnum(mybuffedpacket); 
-                syslog(LOG_INFO, "Inserted item %d in minibuffer seq: %"PRIu32, inserted_items, seqnum);   
+        //         minibuffer[inserted_items] = mybuffedpacket;
+        //         inserted_items++;
+        //         uint32_t seqnum = get_tcp_seqnum(mybuffedpacket); 
+        //         syslog(LOG_INFO, "Inserted item %d in minibuffer seq: %"PRIu32, inserted_items, seqnum);   
 
-            }
-            else{
-                syslog(LOG_INFO, "Packet null, just forwarding");   
+        //     }
+        //     else{
+        //         syslog(LOG_INFO, "Packet null, just forwarding");   
                 xlate_group_bucket(ctx, all_bucket);
-            }
-        }
+        //     }
+        // }
 
     }
 
