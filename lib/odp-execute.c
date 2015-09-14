@@ -33,37 +33,6 @@
 #include "unaligned.h"
 #include "util.h"
 
-static uint32_t get_decimal_little_endian(uint16_t lo, uint16_t hi){
-    uint32_t decimal_32;
-    uint16_t le_lo = (lo<<8) | (lo>>8); //ntohs(lo);
-    uint16_t le_hi = (hi<<8) | (hi>>8) ; // ntohs(hi);
-    decimal_32 = (le_hi << 16) + le_lo;
-    return decimal_32 ;
-}
-
-
-static uint32_t get_tcp_seqnum(const struct ofpbuf *pkt){
-    struct tcp_header *th;
-    if(pkt && (th = ofpbuf_l4(pkt))){    
-        uint32_t seq = get_decimal_little_endian((uint16_t)th->tcp_seq.lo, (uint16_t)th->tcp_seq.hi); 
-        return seq;
-    }
-    else{
-        return 0;
-    }
-}
-
-static int get_ip_proto(const struct ofpbuf *pkt){
-     struct ip_header *ih;
-     if((ih = ofpbuf_l3(pkt))){
-        if(ih->ip_proto){
-            return ih->ip_proto;
-        }
-     }
-     return -1;
-}
-
-
 
 
 static void
@@ -319,76 +288,15 @@ odp_execute_actions__(void *dp, struct ofpbuf *packet, bool steal,
     }
 }
 
-
-
-static int inserted_items = 0;
-static struct ofpbuf *minibuffer[500];
 void
 odp_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
                     struct pkt_metadata *md,
                     const struct nlattr *actions, size_t actions_len,
                     odp_execute_cb dp_execute_action)
 {
-    struct ofpbuf *mybuffedpacket;
-    struct tcp_header *th;
-    int j;
+    odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+                          dp_execute_action, false);
 
-
-    int proto = get_ip_proto(packet);
-    if(proto==17){
-        struct udp_header *uh;
-        const uint8_t *l7;
-        uh = ofpbuf_l4(packet);
-        l7 = ofpbuf_get_udp_payload(packet);
-        char * msg = ofpbuf_at(packet, l7 - (uint8_t *)ofpbuf_data(packet), ntohs(uh->udp_len)-8);
-        int payload = atoi(msg);
-        syslog(LOG_INFO, "Udp payload %d", payload);
-        
-    }
-        if(inserted_items==10 || payload == -666){
-            syslog(LOG_INFO, "minibuffer full, sorting & emptying it");
-            for(j=0;j<inserted_items;j++){
-                if(minibuffer[j]){
-                    syslog(LOG_INFO, "emptying item %d from bucket", j);// with seq %" PRIu32, j, get_tcp_seqnum(minibuffer[j]));
-                    odp_execute_actions__(dp, minibuffer[j], steal, md, actions, actions_len,
-                      dp_execute_action, false);
-
-                    ofpbuf_delete(minibuffer[j]);
-                }
-                else{
-                    syslog(LOG_INFO, "Wtf, why was it null?");   
-                }
-            }
-
-            if(payload == -666){
-                odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                              dp_execute_action, false);
-            }
-            inserted_items = 0;
-        }
-        else{
-            if(packet &&  (th = ofpbuf_l4(packet))){
-                mybuffedpacket = ofpbuf_clone(packet);
-                if (mybuffedpacket == NULL)
-                    syslog(LOG_INFO, "Failed to create mybuffedpacket");   
-                minibuffer[inserted_items] = mybuffedpacket;
-                inserted_items++;
-                // uint32_t seqnum = get_tcp_seqnum(mybuffedpacket); 
-                syslog(LOG_INFO, "Inserted item %d in minibuffer", inserted_items);// seq: %"PRIu32, inserted_items, seqnum);   
-            }
-            else{
-                syslog(LOG_INFO, "Packet null forwarding");
-                odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                              dp_execute_action, false);
-            }
-        }
-    }
-    else{
-        odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                              dp_execute_action, false);
-    }
-    
-    closelog();
 
     if (!actions_len && steal) {
         /* Drop action. */

@@ -18,7 +18,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <inttypes.h>
-
+#include <syslog.h>
 #include "connmgr.h"
 #include "coverage.h"
 #include "dpif.h"

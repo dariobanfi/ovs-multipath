@@ -17,6 +17,7 @@
 #include "ofproto/ofproto-dpif-xlate.h"
 #include "lib/ofp-print.c"
 #include <errno.h>
+#include "ofpbuf.h"
 #include <stdlib.h>
 #include <time.h>
 #include "bfd.h"
@@ -40,6 +41,7 @@
 #include "netlink.h"
 #include "nx-match.h"
 #include "odp-execute.h"
+#include "packets.h"
 #include "ofp-actions.h"
 #include "ofproto/ofproto-dpif-ipfix.h"
 #include "ofproto/ofproto-dpif-mirror.h"
@@ -55,7 +57,7 @@ COVERAGE_DEFINE(xlate_actions_oversize);
 COVERAGE_DEFINE(xlate_actions_too_many_output);
 COVERAGE_DEFINE(xlate_actions_mpls_overflow);
 
-VLOG_DEFINE_THIS_MODULE(ofproto_dpif_xlate);
+    VLOG_DEFINE_THIS_MODULE(ofproto_dpif_xlate);
 
 /* Maximum depth of flow table recursion (due to resubmit actions) in a
  * flow translation. */
@@ -331,18 +333,7 @@ static bool dscp_from_skb_priority(const struct xport *, uint32_t skb_priority,
 static struct xc_entry *xlate_cache_add_entry(struct xlate_cache *xc,
                                               enum xc_type type);
 
-
-static int compare_packet(struct ofpbuf * pkt1, struct ofpbuf *pkt2){
-    uint32_t seq1 = get_tcp_seqnum(pkt1); 
-    uint32_t seq2 = get_tcp_seqnum(pkt2); 
-
-    if(seq1<seq2)
-        return 1; // <
-    else if(seq2<seq1)
-        return -1; // >
-    else
-        return 0; // ==
-}
+    
 
 void
 xlate_ofproto_set(struct ofproto_dpif *ofproto, const char *name,
@@ -1021,9 +1012,12 @@ weighted_probabilistic_switching(const struct xlate_ctx *ctx,
 static const struct ofputil_bucket *
 group_best_live_bucket(const struct xlate_ctx *ctx,
                    const struct group_dpif *group)
-{
-    // return weighted_probabilistic_switching(ctx, group);
-    return weighted_rr_switching(ctx, group);
+{   
+
+    ctx->xout->slow |= SLOW_CONTROLLER;
+
+    return weighted_probabilistic_switching(ctx, group);
+    // return weighted_rr_switching(ctx, group);
 }
 
 
@@ -2278,70 +2272,113 @@ xlate_group_bucket(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
     ctx->exit = false;
 }
 
+static uint32_t get_decimal_little_endian(uint16_t lo, uint16_t hi){
+    uint32_t decimal_32;
+    uint16_t le_lo = (lo<<8) | (lo>>8); //ntohs(lo);
+    uint16_t le_hi = (hi<<8) | (hi>>8) ; // ntohs(hi);
+    decimal_32 = (le_hi << 16) + le_lo;
+    return decimal_32 ;
+}
 
-static int inserted_items = 0;
-static struct ofpbuf *minibuffer[30];
+
+static uint32_t get_tcp_seqnum(const struct ofpbuf *pkt){
+    struct tcp_header *th;
+    if(pkt && (th = ofpbuf_l4(pkt))){    
+        uint32_t seq = get_decimal_little_endian((uint16_t)th->tcp_seq.lo, (uint16_t)th->tcp_seq.hi); 
+        return seq;
+    }
+    else{
+        return 0;
+    }
+}
+
+static int get_ip_proto(const struct ofpbuf *pkt){
+     struct ip_header *ih;
+     if((ih = ofpbuf_l3(pkt))){
+        if(ih->ip_proto){
+            return ih->ip_proto;
+        }
+     }
+     return -1;
+}
+
+
+
+static void
+yolozwag(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
+{
+    uint64_t action_list_stub[1024 / 8];
+    struct ofpbuf action_list, action_set;
+    struct flow old_flow = ctx->xin->flow;
+
+    ofpbuf_use_const(&action_set, bucket->ofpacts, bucket->ofpacts_len);
+    ofpbuf_use_stub(&action_list, action_list_stub, sizeof action_list_stub);
+
+    ofpacts_execute_action_set(&action_list, &action_set);
+    ctx->recurse++;
+    struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
+    struct ofpbuf * pkt;    
+
+    if(ctx->xin->packet != NULL){
+        int proto = get_ip_proto(ctx->xin->packet);
+        if(proto==17){
+            struct udp_header *uh;
+            const uint8_t *l7;
+            uh = ofpbuf_l4(ctx->xin->packet);
+            l7 = ofpbuf_get_udp_payload(ctx->xin->packet);
+            char * msg = ofpbuf_at(ctx->xin->packet, l7 - (uint8_t *)ofpbuf_data(ctx->xin->packet), ntohs(uh->udp_len)-8);
+            int payload = atoi(msg);
+            syslog(LOG_INFO, "Udp payload %d", payload);
+        }
+        else if (proto==6){
+            syslog(LOG_INFO, "TCP packet");
+            syslog(LOG_INFO, "Seq:%"PRIu16, get_tcp_seqnum(ctx->xin->packet));
+
+        }
+        else{
+            syslog(LOG_INFO, "Protocol %d" , proto);
+        }
+    }
+    else{
+        syslog(LOG_INFO, "Context null - revalidation?");
+        do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
+        ctx->recurse--;
+
+        ofpbuf_uninit(&action_set);
+        ofpbuf_uninit(&action_list);
+
+        /* Roll back flow to previous state.
+         * This is equivalent to cloning the packet for each bucket.
+         *
+         * As a side effect any subsequently applied actions will
+         * also effectively be applied to a clone of the packet taken
+         * just before applying the all or indirect group.
+         *
+         * Note that group buckets are action sets, hence they cannot modify the
+         * main action set.  Also any stack actions are ignored when executing an
+         * action set, so group buckets cannot change the stack either. */
+        ctx->xin->flow = old_flow;
+
+        /* The fact that the group bucket exits (for any reason) does not mean that
+         * the translation after the group action should exit.  Specifically, if
+         * the group bucket recirculates (which typically modifies the packet), the
+         * actions after the group action must continue processing with the
+         * original, not the recirculated packet! */
+        ctx->exit = false;
+    }
+}
+
 static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
 {
     const struct ofputil_bucket *all_bucket;
-    struct ofpbuf *mybuffedpacket;
-    struct tcp_header *th;
-    int j;
 
-    ctx->xout->slow |= SLOW_ACTION;
+    ctx->xout->slow |= SLOW_CONTROLLER;
 
 
     all_bucket = group_first_live_bucket(ctx, group, 0);
 
     if(all_bucket){
-
-
-
-        // if(inserted_items==30){
-        //     syslog(LOG_INFO, "minibuffer full, sorting & emptying it");
-
-        //     for(j=0;j<inserted_items;j++){
-        //         if(minibuffer[j]){
-        //             syslog(LOG_INFO, "emptying item %d from bucket with seq %" PRIu32, j, get_tcp_seqnum(minibuffer[j]));
-        //             ctx->xin->packet = minibuffer[j];
-        //             xlate_group_bucket(ctx, all_bucket);
-        //             ofpbuf_delete(minibuffer[j]);
-        //         }
-        //         else{
-        //             syslog(LOG_INFO, "Wtf, why was it null?");   
-        //         }
-
-        //     }
-        //     inserted_items = 0;
-        // }
-        // else{
-
-        //     if(ctx->xin->packet && (th = ofpbuf_l4(ctx->xin->packet))){
-        //         mybuffedpacket = ofpbuf_clone(ctx->xin->packet);
-
-        //         if (mybuffedpacket == NULL)
-        //             syslog(LOG_INFO, "Failed to create mybuffedpacket");   
-
-
-        //         minibuffer[inserted_items] = mybuffedpacket;
-        //         inserted_items++;
-        //         uint32_t seqnum = get_tcp_seqnum(mybuffedpacket); 
-        //         syslog(LOG_INFO, "Inserted item %d in minibuffer seq: %"PRIu32, inserted_items, seqnum);   
-
-        //     }
-        //     else{
-        //         syslog(LOG_INFO, "Packet null, just forwarding");   
-                xlate_group_bucket(ctx, all_bucket);
-        //     }
-        // }
-
-    }
-
-
-
-
-    else{
-        syslog(LOG_INFO, "The bucket was null");   
+        yolozwag(ctx, all_bucket);
     }
 
 
@@ -2367,11 +2404,10 @@ xlate_select_group(struct xlate_ctx *ctx, struct group_dpif *group)
     const struct ofputil_bucket *bucket;
 
     
-    ctx->xout->slow |= SLOW_ACTION;
     
     bucket = group_best_live_bucket(ctx, group);
     if (bucket) {
-        memset(&wc->masks.dl_dst, 0xff, sizeof wc->masks.dl_dst);
+        // memset(&wc->masks.dl_dst, 0xff, sizeof wc->masks.dl_dst);
         xlate_group_bucket(ctx, bucket);
     }
 }
