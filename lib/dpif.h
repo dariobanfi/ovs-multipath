@@ -586,6 +586,7 @@ struct dpif_execute {
     size_t actions_len;             /* Length of 'actions' in bytes. */
     struct ofpbuf *packet;          /* Packet to execute. */
     struct pkt_metadata md;         /* Packet metadata. */
+    bool tcp_reordering;
 
     /* Some dpif providers do not implement every action.  The Linux kernel
      * datapath, in particular, does not implement ARP field modification.

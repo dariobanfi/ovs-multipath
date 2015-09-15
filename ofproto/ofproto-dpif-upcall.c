@@ -891,6 +891,8 @@ destroy_upcall:
     return n_upcalls;
 }
 
+struct dpif_op minibuf[FLOW_MISS_MAX_BATCH * 2];
+
 static void
 handle_upcalls(struct handler *handler, struct hmap *misses,
                struct upcall *upcalls, size_t n_upcalls)
@@ -1045,7 +1047,7 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
          * upcall. */
         miss->flow.vlan_tci = flow_vlan_tci;
 
-        syslog(LOG_INFO, "TCP BUFFER? %d", miss->xout.tcp_reordering);
+        // syslog(LOG_INFO, "TCP BUFFER? %d", miss->xout.tcp_reordering);
 
         if (ofpbuf_size(&miss->xout.odp_actions)) {
             op = &ops[n_ops++];
@@ -1056,8 +1058,15 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
             op->u.execute.actions = ofpbuf_data(&miss->xout.odp_actions);
             op->u.execute.actions_len = ofpbuf_size(&miss->xout.odp_actions);
             op->u.execute.needs_help = (miss->xout.slow & SLOW_ACTION) != 0;
+            op->u.execute.tcp_reordering = miss->xout.tcp_reordering;
         }
     }
+
+
+
+    ////// ENDFOR
+
+
 
     /* Special case for fail-open mode.
      *
@@ -1090,13 +1099,15 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
     }
 
     syslog(LOG_INFO, "Executing %zu batched ops", n_ops);
+
+
     /* Execute batch. */
     for (i = 0; i < n_ops; i++) {
         opsp[i] = &ops[i];
-        // syslog(LOG_INFO, "%s", ofp_print_tcp_seqnum(ofpbuf_data(ops[i].u.execute.packet), ofpbuf_size(ops[i].u.execute.packet)));
     }
 
     dpif_operate(udpif->dpif, opsp, n_ops);
+
 }
 
 /* Must be called with udpif->ukeys[hash % udpif->n_revalidators].mutex. */

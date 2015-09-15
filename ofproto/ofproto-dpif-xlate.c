@@ -2323,8 +2323,7 @@ static struct xlate_ctx * copy_ctx(struct xlate_ctx * ctx){
 
 // static struct xlate_ctx *minibuf[10];
 // static int minibuf_size = 0;
-static void
-    (struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
+static void yolozwag(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
 {
     uint64_t action_list_stub[1024 / 8];
     struct ofpbuf action_list, action_set;
@@ -2391,11 +2390,11 @@ static void
     //         syslog(LOG_INFO, "Just forwarding");
     //         do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
     //     }
-            ctx->xout->tcp_reordering = true;
+            ctx->xout->tcp_reordering = false;
     }
     else if(proto == 6){
         ctx->xout->tcp_reordering = true;  
-        syslog(LOG_INFO, "%s", ofp_print_tcp_seqnum(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt));
+        // syslog(LOG_INFO, "%s", ofp_print_tcp_seqnum(ofpbuf_data(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt)));
  
     }
     else{
