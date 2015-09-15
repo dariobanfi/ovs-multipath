@@ -14,7 +14,7 @@
 
 #include <config.h>
 #include "ofproto-dpif-upcall.h"
-
+#include "ofp-print.h"
 #include <errno.h>
 #include <stdbool.h>
 #include <inttypes.h>
@@ -901,6 +901,7 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
     struct flow_miss *miss;
     size_t n_ops, i;
     unsigned int flow_limit;
+    int j;
     bool fail_open, may_put;
 
     atomic_read(&udpif->flow_limit, &flow_limit);
@@ -914,8 +915,11 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
      * We can't do this in the previous loop because we need the TCP flags for
      * all the packets in each miss. */
     fail_open = false;
+    j = 0;
     HMAP_FOR_EACH (miss, hmap_node, misses) {
         struct xlate_in xin;
+        struct upcall *upcall = &upcalls[j];
+        struct ofpbuf *packet = &upcall->dpif_upcall.packet;
 
         xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL,
                       miss->stats.tcp_flags, NULL);
@@ -928,9 +932,10 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
              * packet was accounted to.  Presumably the revalidators will deal
              * with pushing its stats eventually. */
         }
-
+        xin.pkt = packet;
         xlate_actions(&xin, &miss->xout);
         fail_open = fail_open || miss->xout.fail_open;
+        j++;
     }
 
     /* Now handle the packets individually in order of arrival.  In the common
@@ -957,11 +962,12 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
          * generate proper mega flow masks for VLAN splinter flows. */
         flow_vlan_tci = miss->flow.vlan_tci;
 
+        // MPSDN - NO NEED
         if (miss->xout.slow) {
-            struct xlate_in xin;
+            // struct xlate_in xin;
 
-            xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL, 0, packet);
-            xlate_actions_for_side_effects(&xin);
+            // xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL, 0, packet);
+            // xlate_actions_for_side_effects(&xin);
         }
 
         if (miss->flow.in_port.ofp_port
@@ -1039,8 +1045,9 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
          * upcall. */
         miss->flow.vlan_tci = flow_vlan_tci;
 
-        if (ofpbuf_size(&miss->xout.odp_actions)) {
+        syslog(LOG_INFO, "TCP BUFFER? %d", miss->xout.tcp_reordering);
 
+        if (ofpbuf_size(&miss->xout.odp_actions)) {
             op = &ops[n_ops++];
             op->type = DPIF_OP_EXECUTE;
             op->u.execute.packet = packet;
@@ -1062,6 +1069,7 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
      *
      * Copy packets before they are modified by execution. */
     if (fail_open) {
+        syslog(LOG_INFO, "Fail opn");
         for (i = 0; i < n_upcalls; i++) {
             struct upcall *upcall = &upcalls[i];
             struct flow_miss *miss = upcall->flow_miss;
@@ -1081,10 +1089,13 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
         }
     }
 
+    syslog(LOG_INFO, "Executing %zu batched ops", n_ops);
     /* Execute batch. */
     for (i = 0; i < n_ops; i++) {
         opsp[i] = &ops[i];
+        // syslog(LOG_INFO, "%s", ofp_print_tcp_seqnum(ofpbuf_data(ops[i].u.execute.packet), ofpbuf_size(ops[i].u.execute.packet)));
     }
+
     dpif_operate(udpif->dpif, opsp, n_ops);
 }
 

@@ -87,6 +87,30 @@ ofp_packet_to_string(const void *data, size_t len)
     return ds_cstr(&ds);
 }
 
+char *ofp_print_tcp_seqnum(const void *data, size_t len){
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    const struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
+    struct ofpbuf buf;
+    struct flow flow;
+    size_t l4_size;
+
+    ofpbuf_use_const(&buf, data, len);
+    flow_extract(&buf, &md, &flow);
+    flow_format(&ds, &flow);
+
+    l4_size = ofpbuf_l4_size(&buf);
+
+    if (flow.nw_proto == IPPROTO_TCP && l4_size >= TCP_HEADER_LEN) {
+        struct tcp_header *th = ofpbuf_l4(&buf);
+        ds_put_format(&ds, " tcp_seq:%"PRIx16, ntohl(get_16aligned_be32(&th->tcp_seq)));
+    } 
+
+    ds_put_char(&ds, '\n');
+
+    return ds_cstr(&ds);
+}
+
+
 static void
 ofp_print_packet_in(struct ds *string, const struct ofp_header *oh,
                     int verbosity)
@@ -3107,6 +3131,11 @@ ofp_to_string(const void *oh_, size_t len, int verbosity)
     ds_put_hex_dump(&string, oh, len, 0, true);
     return ds_steal_cstr(&string);
 }
+
+
+
+
+
 
 static void
 print_and_free(FILE *stream, char *string)

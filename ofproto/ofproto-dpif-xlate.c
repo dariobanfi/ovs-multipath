@@ -1960,6 +1960,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     }
 
     if (xport->peer) {
+        syslog(LOG_INFO, "Peer");
         const struct xport *peer = xport->peer;
         struct flow old_flow = ctx->xin->flow;
         enum slow_path_reason special;
@@ -2026,6 +2027,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     }
 
     if (xport->is_tunnel) {
+        syslog(LOG_INFO, "Tunnel");
          /* Save tunnel metadata so that changes made due to
           * the Logical (tunnel) Port are not visible for any further
           * matches, while explicit set actions on tunnel metadata are.
@@ -2075,6 +2077,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
                                               &ctx->xout->wc);
 
         if (ctx->use_recirc) {
+            syslog(LOG_INFO, "Recirc");
             struct ovs_action_hash *act_hash;
             struct xlate_recirc *xr = &ctx->recirc;
 
@@ -2292,80 +2295,126 @@ static uint32_t get_tcp_seqnum(const struct ofpbuf *pkt){
     }
 }
 
-static int get_ip_proto(const struct ofpbuf *pkt){
-     struct ip_header *ih;
-     if((ih = ofpbuf_l3(pkt))){
-        if(ih->ip_proto){
-            return ih->ip_proto;
-        }
-     }
-     return -1;
+static uint8_t get_ip_proto(const struct ofpbuf *data, size_t len){
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    const struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
+    struct ofpbuf buf;
+    struct flow flow;
+
+    ofpbuf_use_const(&buf, data, len);
+    flow_extract(&buf, &md, &flow);
+    flow_format(&ds, &flow);
+
+    return flow.nw_proto;
 }
 
 
+static struct xlate_ctx * copy_ctx(struct xlate_ctx * ctx){
+    struct xlate_in  *new_xin = malloc(sizeof(*ctx->xin));
+    struct xlate_out *new_xout = malloc(sizeof(*ctx->xout));
+    struct xlate_ctx *new_ctx = malloc(sizeof(*ctx));
+    memcpy(new_ctx, ctx, sizeof(*ctx));
+    memcpy(new_xin, ctx->xin, sizeof(*ctx->xin));
+    memcpy(new_xout, ctx->xout, sizeof(*ctx->xout));
+    new_ctx->xin = new_xin;
+    new_ctx->xout = new_xout;   
+    return new_ctx;
+}
 
+// static struct xlate_ctx *minibuf[10];
+// static int minibuf_size = 0;
 static void
-yolozwag(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
+    (struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
 {
     uint64_t action_list_stub[1024 / 8];
     struct ofpbuf action_list, action_set;
+    char * msg;
     struct flow old_flow = ctx->xin->flow;
 
     ofpbuf_use_const(&action_set, bucket->ofpacts, bucket->ofpacts_len);
     ofpbuf_use_stub(&action_list, action_list_stub, sizeof action_list_stub);
 
     ofpacts_execute_action_set(&action_list, &action_set);
+
     ctx->recurse++;
-    struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
-    struct ofpbuf * pkt;    
 
-    if(ctx->xin->packet != NULL){
-        int proto = get_ip_proto(ctx->xin->packet);
+
+
+    // if(ctx->xin->pkt != NULL){
+    //     int proto = get_ip_proto(ctx->xin->pkt);
+    //     if(proto==17){
+    //         struct udp_header *uh;
+    //         const uint8_t *l7;
+    //         uh = ofpbuf_l4(ctx->xin->pkt);
+    //         l7 = ofpbuf_get_udp_payload(ctx->xin->pkt);
+    //         msg = ofpbuf_at(ctx->xin->pkt, l7 - (uint8_t *)ofpbuf_data(ctx->xin->pkt), ntohs(uh->udp_len)-8);
+    //         int payload = atoi(msg);
+    //         syslog(LOG_INFO, "Udp payload %d", payload);
+    //     }
+    //     else if (proto==6){
+    //         struct action_ctx element;
+    //         struct ofpbuf * buf_actions = ofpbuf_clone(ofpbuf_data(&action_list));
+    //         element.actions = buf_actions;
+    //         element.actions_size = ofpbuf_size(&action_list);
+    //         syslog(LOG_INFO, "ctx %p act %p", ctx, &action_list);
+    //         syslog(LOG_INFO, "TCP packet - Seq:%"PRIu16, get_tcp_seqnum(ctx->xin->pkt));
+
+
+    //     }
+    //     else{
+    //         syslog(LOG_INFO, "Protocol %d" , proto);
+    //     }
+    // }
+
+    if(ctx->xin->pkt != NULL){
+        // syslog(LOG_INFO, "%s", ofp_packet_to_string(ofpbuf_data(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt)));
+        int proto = get_ip_proto(ofpbuf_data(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt));
+        // syslog(LOG_INFO, "Proto: %"PRIu8, proto);
         if(proto==17){
-            struct udp_header *uh;
-            const uint8_t *l7;
-            uh = ofpbuf_l4(ctx->xin->packet);
-            l7 = ofpbuf_get_udp_payload(ctx->xin->packet);
-            char * msg = ofpbuf_at(ctx->xin->packet, l7 - (uint8_t *)ofpbuf_data(ctx->xin->packet), ntohs(uh->udp_len)-8);
-            int payload = atoi(msg);
-            syslog(LOG_INFO, "Udp payload %d", payload);
-        }
-        else if (proto==6){
-            syslog(LOG_INFO, "TCP packet");
-            syslog(LOG_INFO, "Seq:%"PRIu16, get_tcp_seqnum(ctx->xin->packet));
+    //         if(minibuf_size>5){
+    //             int i;
+    //             syslog(LOG_INFO, "Emptying buf:");
+    //             for (i=0;i<minibuf_size;i++){
+    //                 syslog(LOG_INFO, "ptr: %p", minibuf[i]);
+    //                 do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), minibuf[i]);
 
-        }
-        else{
-            syslog(LOG_INFO, "Protocol %d" , proto);
-        }
+    //             }
+    //             minibuf_size = 0;
+    //         }
+    //         else{
+    //             syslog(LOG_INFO, "Adding to buf");
+    //             minibuf[minibuf_size] = copy_ctx(ctx);
+    //             minibuf_size++;
+    //         }
+    //     }
+    //     else{
+    //         syslog(LOG_INFO, "Just forwarding");
+    //         do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
+    //     }
+            ctx->xout->tcp_reordering = true;
+    }
+    else if(proto == 6){
+        ctx->xout->tcp_reordering = true;  
+        syslog(LOG_INFO, "%s", ofp_print_tcp_seqnum(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt));
+ 
     }
     else{
-        syslog(LOG_INFO, "Context null - revalidation?");
-        do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
-        ctx->recurse--;
-
-        ofpbuf_uninit(&action_set);
-        ofpbuf_uninit(&action_list);
-
-        /* Roll back flow to previous state.
-         * This is equivalent to cloning the packet for each bucket.
-         *
-         * As a side effect any subsequently applied actions will
-         * also effectively be applied to a clone of the packet taken
-         * just before applying the all or indirect group.
-         *
-         * Note that group buckets are action sets, hence they cannot modify the
-         * main action set.  Also any stack actions are ignored when executing an
-         * action set, so group buckets cannot change the stack either. */
-        ctx->xin->flow = old_flow;
-
-        /* The fact that the group bucket exits (for any reason) does not mean that
-         * the translation after the group action should exit.  Specifically, if
-         * the group bucket recirculates (which typically modifies the packet), the
-         * actions after the group action must continue processing with the
-         * original, not the recirculated packet! */
-        ctx->exit = false;
+        ctx->xout->tcp_reordering = false;
     }
+    // else{
+
+    //     syslog(LOG_INFO, "null pkt");
+        do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
+   
+    }
+
+    ctx->recurse--;
+    ofpbuf_uninit(&action_set);
+    ofpbuf_uninit(&action_list);
+    ctx->xin->flow = old_flow;
+    ctx->exit = false;
+
+
 }
 
 static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
@@ -2407,7 +2456,7 @@ xlate_select_group(struct xlate_ctx *ctx, struct group_dpif *group)
     
     bucket = group_best_live_bucket(ctx, group);
     if (bucket) {
-        // memset(&wc->masks.dl_dst, 0xff, sizeof wc->masks.dl_dst);
+        memset(&wc->masks.dl_dst, 0xff, sizeof wc->masks.dl_dst);
         xlate_group_bucket(ctx, bucket);
     }
 }
