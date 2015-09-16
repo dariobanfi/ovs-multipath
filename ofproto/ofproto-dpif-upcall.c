@@ -891,7 +891,27 @@ destroy_upcall:
     return n_upcalls;
 }
 
-struct dpif_op minibuf[FLOW_MISS_MAX_BATCH * 2];
+
+
+static void dpif_execute_clone(struct dpif_execute *dst, struct dpif_execute *src){
+    struct nlattr *new_actions = malloc(sizeof(*src->actions));
+    *new_actions = *src->actions;
+    dst->actions = new_actions;
+    dst->actions_len = src->actions_len;
+    dst->packet = ofpbuf_clone_data_with_headroom(ofpbuf_data(src->packet), ofpbuf_size(src->packet), 0);
+    dst->tcp_reordering = src->tcp_reordering;
+    dst->needs_help = src->needs_help;
+}
+
+static void dpif_execute_free(struct dpif_execute * target){
+    free(target->actions);
+    ofpbuf_delete(target->packet);
+    free(target);
+}
+
+
+static struct dpif_execute *minibuf[50];
+static int dpif_execute_len = 0;
 
 static void
 handle_upcalls(struct handler *handler, struct hmap *misses,
@@ -1098,17 +1118,55 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
         }
     }
 
-    syslog(LOG_INFO, "Executing %zu batched ops", n_ops);
-
+    // syslog(LOG_INFO, "Executing %zu batched ops", n_ops);
 
     /* Execute batch. */
     for (i = 0; i < n_ops; i++) {
         opsp[i] = &ops[i];
+        if(ops[i].u.execute.tcp_reordering){
+            if(dpif_execute_len<40){
+
+                if(ops[i].u.execute.actions_len<=8){
+                    syslog(LOG_INFO, "Adding to buf %d", dpif_execute_len);
+
+                    struct dpif_execute * buf_item = malloc(sizeof(ops[i].u.execute));
+                    dpif_execute_clone(buf_item, &ops[i].u.execute);
+                    minibuf[dpif_execute_len] = buf_item;
+                    dpif_execute_len++;
+
+                }
+                else{
+                    syslog(LOG_INFO, "What the actual fuck?");
+                }
+
+            }
+            else{
+                syslog(LOG_INFO, "Buf full");
+                int k;
+                for(k=0; k<dpif_execute_len;k++){
+                    syslog(LOG_INFO, "emptying  %d", k);
+
+                    struct dpif_op *buffed_op;
+                    buffed_op = &ops[n_ops++];
+                    buffed_op->type = DPIF_OP_EXECUTE;
+                    buffed_op->u.execute = mini
+                    odp_key_to_pkt_metadata(miss->key, miss->key_len,
+                                            &buffed_op->u.execute.md);
+                    buffed_op->u.execute.actions = ofpbuf_data(&miss->xout.odp_actions);
+                    buffed_op->u.execute.actions_len = ofpbuf_size(&miss->xout.odp_actions);
+                    buffed_op->u.execute.needs_help = (miss->xout.slow & SLOW_ACTION) != 0;
+                    buffed_op->u.execute.tcp_reordering = miss->xout.tcp_reordering;
+                    dpif_execute_free(minibuf[k]);
+                }
+                dpif_execute_len = 0;
+            }
+        }
     }
 
     dpif_operate(udpif->dpif, opsp, n_ops);
 
 }
+
 
 /* Must be called with udpif->ukeys[hash % udpif->n_revalidators].mutex. */
 static struct udpif_key *

@@ -1194,16 +1194,9 @@ dpif_execute_with_help(struct dpif *dpif, struct dpif_execute *execute)
     COVERAGE_INC(dpif_execute_with_help);
 
 
-    if(execute->tcp_reordering){
-        odp_execute_actions(&aux, execute->packet, false, &execute->md,
+    odp_execute_actions(&aux, execute->packet, false, &execute->md,
                         execute->actions, execute->actions_len,
                         dpif_execute_helper_cb);
-    }
-    else{
-        yolo_execute_actions(&aux, execute->packet, false, &execute->md,
-                        execute->actions, execute->actions_len,
-                        dpif_execute_helper_cb);
-    }
     
     return aux.error;
 }

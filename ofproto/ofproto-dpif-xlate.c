@@ -2390,10 +2390,10 @@ static void yolozwag(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
     //         syslog(LOG_INFO, "Just forwarding");
     //         do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
     //     }
-            ctx->xout->tcp_reordering = false;
+            ctx->xout->tcp_reordering = true;
     }
     else if(proto == 6){
-        ctx->xout->tcp_reordering = true;  
+        ctx->xout->tcp_reordering = false;  
         // syslog(LOG_INFO, "%s", ofp_print_tcp_seqnum(ofpbuf_data(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt)));
  
     }

@@ -39,8 +39,5 @@ void odp_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
                     struct pkt_metadata *,
                     const struct nlattr *actions, size_t actions_len,
                     odp_execute_cb dp_execute_action);
-void yolo_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
-                    struct pkt_metadata *,
-                    const struct nlattr *actions, size_t actions_len,
-                    odp_execute_cb dp_execute_action);
+
 #endif

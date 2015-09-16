@@ -582,7 +582,7 @@ struct dpif_flow_del {
 
 struct dpif_execute {
     /* Raw support for execute passed along to the provider. */
-    const struct nlattr *actions;   /* Actions to execute on packet. */
+    struct nlattr *actions;   /* Actions to execute on packet. */
     size_t actions_len;             /* Length of 'actions' in bytes. */
     struct ofpbuf *packet;          /* Packet to execute. */
     struct pkt_metadata md;         /* Packet metadata. */

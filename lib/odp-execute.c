@@ -23,7 +23,7 @@
 #include <linux/openvswitch.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
+
 #include "dpif.h"
 #include "netlink.h"
 #include "ofpbuf.h"
@@ -294,26 +294,6 @@ odp_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
                     const struct nlattr *actions, size_t actions_len,
                     odp_execute_cb dp_execute_action)
 {
-    odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                          dp_execute_action, false);
-
-
-    if (!actions_len && steal) {
-        /* Drop action. */
-        ofpbuf_delete(packet);
-    }
-}
-
-
-
-void
-yolo_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
-                    struct pkt_metadata *md,
-                    const struct nlattr *actions, size_t actions_len,
-                    odp_execute_cb dp_execute_action)
-{
-
-    syslog(LOG_INFO, "I am here!!!!!!!!!");
     odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
                           dp_execute_action, false);
 
