@@ -18,6 +18,9 @@
 
 #include "dpif-linux.h"
 
+#include <syslog.h>
+#include "ofp-print.h"
+
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -1307,6 +1310,9 @@ dpif_linux_encode_execute(int dp_ifindex, const struct dpif_execute *d_exec,
     struct ovs_header *k_exec;
     size_t key_ofs;
 
+    syslog(LOG_INFO, " %s", ofp_packet_to_string(ofpbuf_data(d_exec->packet), ofpbuf_size(d_exec->packet)));
+
+
     ofpbuf_prealloc_tailroom(buf, (64
                                    + ofpbuf_size(d_exec->packet)
                                    + ODP_KEY_METADATA_SIZE
@@ -1336,6 +1342,8 @@ dpif_linux_execute__(int dp_ifindex, const struct dpif_execute *execute)
     uint64_t request_stub[1024 / 8];
     struct ofpbuf request;
     int error;
+
+    syslog(LOG_INFO, "Je suis kernel");
 
     ofpbuf_use_stub(&request, request_stub, sizeof request_stub);
     dpif_linux_encode_execute(dp_ifindex, execute, &request);
@@ -1388,6 +1396,8 @@ dpif_linux_operate__(struct dpif_linux *dpif, struct dpif_op **ops, size_t n_ops
 
         ofpbuf_use_stub(&aux->reply, aux->reply_stub, sizeof aux->reply_stub);
         aux->txn.reply = NULL;
+        syslog(LOG_INFO, "op type %d" , op->type);
+
 
         switch (op->type) {
         case DPIF_OP_FLOW_PUT:

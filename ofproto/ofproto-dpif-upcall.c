@@ -901,6 +901,9 @@ static void dpif_execute_clone(struct dpif_execute *dst, struct dpif_execute *sr
     dst->packet = ofpbuf_clone_data_with_headroom(ofpbuf_data(src->packet), ofpbuf_size(src->packet), 0);
     dst->tcp_reordering = src->tcp_reordering;
     dst->needs_help = src->needs_help;
+    struct pkt_metadata *metadata = malloc(sizeof(struct pkt_metadata));
+    memcpy(metadata, &src->md, sizeof(src->md));
+    dst->md = *metadata;
 }
 
 static void dpif_execute_free(struct dpif_execute * target){
@@ -919,9 +922,11 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
 {
     struct udpif *udpif = handler->udpif;
     struct dpif_op *opsp[FLOW_MISS_MAX_BATCH * 2];
+    struct dpif_op *real_opsp[FLOW_MISS_MAX_BATCH * 2];
     struct dpif_op ops[FLOW_MISS_MAX_BATCH * 2];
     struct flow_miss *miss;
     size_t n_ops, i;
+    size_t real_n_ops = 0;
     unsigned int flow_limit;
     int j;
     bool fail_open, may_put;
@@ -1118,52 +1123,57 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
         }
     }
 
-    // syslog(LOG_INFO, "Executing %zu batched ops", n_ops);
+    bool buf_must_be_emptied = false;
 
     /* Execute batch. */
     for (i = 0; i < n_ops; i++) {
-        opsp[i] = &ops[i];
+        //NEEDS REORDERING
         if(ops[i].u.execute.tcp_reordering){
-            if(dpif_execute_len<40){
-
-                if(ops[i].u.execute.actions_len<=8){
-                    syslog(LOG_INFO, "Adding to buf %d", dpif_execute_len);
-
-                    struct dpif_execute * buf_item = malloc(sizeof(ops[i].u.execute));
-                    dpif_execute_clone(buf_item, &ops[i].u.execute);
-                    minibuf[dpif_execute_len] = buf_item;
-                    dpif_execute_len++;
-
-                }
-                else{
-                    syslog(LOG_INFO, "What the actual fuck?");
-                }
-
+            // ADD TO BUFFER
+            if(ops[i].u.execute.actions_len<=8){
+                syslog(LOG_INFO, "Adding to buf %d", dpif_execute_len);
+                struct dpif_execute * buf_item = malloc(sizeof(ops[i].u.execute));
+                dpif_execute_clone(buf_item, &ops[i].u.execute);
+                minibuf[dpif_execute_len] = buf_item;
+                dpif_execute_len++;
             }
             else{
-                syslog(LOG_INFO, "Buf full");
-                int k;
-                for(k=0; k<dpif_execute_len;k++){
-                    syslog(LOG_INFO, "emptying  %d", k);
-
-                    struct dpif_op *buffed_op;
-                    buffed_op = &ops[n_ops++];
-                    buffed_op->type = DPIF_OP_EXECUTE;
-                    buffed_op->u.execute = mini
-                    odp_key_to_pkt_metadata(miss->key, miss->key_len,
-                                            &buffed_op->u.execute.md);
-                    buffed_op->u.execute.actions = ofpbuf_data(&miss->xout.odp_actions);
-                    buffed_op->u.execute.actions_len = ofpbuf_size(&miss->xout.odp_actions);
-                    buffed_op->u.execute.needs_help = (miss->xout.slow & SLOW_ACTION) != 0;
-                    buffed_op->u.execute.tcp_reordering = miss->xout.tcp_reordering;
-                    dpif_execute_free(minibuf[k]);
-                }
-                dpif_execute_len = 0;
+                syslog(LOG_INFO, "What the actual fuck?");
             }
+
+            if(dpif_execute_len>4){
+                buf_must_be_emptied = true;
+            }
+        }
+        // DOESN'T NEED REORDERING
+        else{
+            syslog(LOG_INFO, "No need to reorder yo");
+            opsp[real_n_ops] = &ops[i];
+            real_n_ops++;
         }
     }
 
-    dpif_operate(udpif->dpif, opsp, n_ops);
+    if(buf_must_be_emptied){
+        syslog(LOG_INFO, "Buf full");
+        buf_must_be_emptied = false;
+        int k;
+        for(k=0; k<dpif_execute_len;k++){
+            syslog(LOG_INFO, "emptying  %d", k);
+            struct dpif_op *buffed_op = malloc(sizeof(struct dpif_op));
+            buffed_op->type = DPIF_OP_EXECUTE;
+            buffed_op->u.execute = *minibuf[k];
+            opsp[real_n_ops] = buffed_op;
+            // dpif_execute_free(minibuf[k]);
+            // free(buffed_op);
+            real_n_ops++;
+        }
+        dpif_execute_len = 0;
+    }
+
+    syslog(LOG_INFO, "Executing %zu ops", real_n_ops);
+
+    if(real_n_ops>0)
+        dpif_operate(udpif->dpif, opsp, real_n_ops);
 
 }
 

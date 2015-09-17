@@ -21,7 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <linux/openvswitch.h>
-
+#include <syslog.h>
 #include "flow.h"
 
 struct ofpbuf;
