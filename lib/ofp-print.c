@@ -52,7 +52,6 @@
 static void ofp_print_queue_name(struct ds *string, uint32_t port);
 static void ofp_print_error(struct ds *, enum ofperr);
 
-
 /* Returns a string that represents the contents of the Ethernet frame in the
  * 'len' bytes starting at 'data'.  The caller must free the returned string.*/
 char *
@@ -3160,3 +3159,4 @@ ofp_print_packet(FILE *stream, const void *data, size_t len)
 {
     print_and_free(stream, ofp_packet_to_string(data, len));
 }
+

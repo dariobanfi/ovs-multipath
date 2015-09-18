@@ -173,6 +173,8 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/process.h \
 	lib/random.c \
 	lib/random.h \
+	lib/reorderingbuf.c \
+	lib/reorderingbuf.h \
 	lib/rconn.c \
 	lib/rconn.h \
 	lib/reconnect.c \

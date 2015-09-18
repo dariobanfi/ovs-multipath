@@ -35,6 +35,8 @@
 #include "socket-util.h"
 #include "util.h"
 #include "vlog.h"
+#include <syslog.h>
+#include "ofp-print.h"
 
 VLOG_DEFINE_THIS_MODULE(netlink_socket);
 

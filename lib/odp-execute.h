@@ -40,4 +40,12 @@ void odp_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
                     const struct nlattr *actions, size_t actions_len,
                     odp_execute_cb dp_execute_action);
 
+void odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
+                    struct pkt_metadata *,
+                    const struct nlattr *actions, size_t actions_len,
+                    odp_execute_cb dp_execute_action);
+
+
+
+
 #endif

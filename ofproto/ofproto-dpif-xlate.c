@@ -2275,26 +2275,22 @@ xlate_group_bucket(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
     ctx->exit = false;
 }
 
-static uint32_t get_decimal_little_endian(uint16_t lo, uint16_t hi){
-    uint32_t decimal_32;
-    uint16_t le_lo = (lo<<8) | (lo>>8); //ntohs(lo);
-    uint16_t le_hi = (hi<<8) | (hi>>8) ; // ntohs(hi);
-    decimal_32 = (le_hi << 16) + le_lo;
-    return decimal_32 ;
+
+
+
+
+
+static struct xlate_ctx * copy_ctx(struct xlate_ctx * ctx){
+    struct xlate_in  *new_xin = malloc(sizeof(*ctx->xin));
+    struct xlate_out *new_xout = malloc(sizeof(*ctx->xout));
+    struct xlate_ctx *new_ctx = malloc(sizeof(*ctx));
+    memcpy(new_ctx, ctx, sizeof(*ctx));
+    memcpy(new_xin, ctx->xin, sizeof(*ctx->xin));
+    memcpy(new_xout, ctx->xout, sizeof(*ctx->xout));
+    new_ctx->xin = new_xin;
+    new_ctx->xout = new_xout;   
+    return new_ctx;
 }
-
-
-static uint32_t get_tcp_seqnum(const struct ofpbuf *pkt){
-    struct tcp_header *th;
-    if(pkt && (th = ofpbuf_l4(pkt))){    
-        uint32_t seq = get_decimal_little_endian((uint16_t)th->tcp_seq.lo, (uint16_t)th->tcp_seq.hi); 
-        return seq;
-    }
-    else{
-        return 0;
-    }
-}
-
 static uint8_t get_ip_proto(const struct ofpbuf *data, size_t len){
     struct ds ds = DS_EMPTY_INITIALIZER;
     const struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
@@ -2309,21 +2305,7 @@ static uint8_t get_ip_proto(const struct ofpbuf *data, size_t len){
 }
 
 
-static struct xlate_ctx * copy_ctx(struct xlate_ctx * ctx){
-    struct xlate_in  *new_xin = malloc(sizeof(*ctx->xin));
-    struct xlate_out *new_xout = malloc(sizeof(*ctx->xout));
-    struct xlate_ctx *new_ctx = malloc(sizeof(*ctx));
-    memcpy(new_ctx, ctx, sizeof(*ctx));
-    memcpy(new_xin, ctx->xin, sizeof(*ctx->xin));
-    memcpy(new_xout, ctx->xout, sizeof(*ctx->xout));
-    new_ctx->xin = new_xin;
-    new_ctx->xout = new_xout;   
-    return new_ctx;
-}
-
-// static struct xlate_ctx *minibuf[10];
-// static int minibuf_size = 0;
-static void yolozwag(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
+static void custom_group_bucket(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
 {
     uint64_t action_list_stub[1024 / 8];
     struct ofpbuf action_list, action_set;
@@ -2390,11 +2372,11 @@ static void yolozwag(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
     //         syslog(LOG_INFO, "Just forwarding");
     //         do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
     //     }
-            ctx->xout->tcp_reordering = true;
+            ctx->xout->tcp_reordering = false;
     }
     else if(proto == 6){
-        ctx->xout->tcp_reordering = false;  
-        // syslog(LOG_INFO, "%s", ofp_print_tcp_seqnum(ofpbuf_data(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt)));
+        ctx->xout->tcp_reordering = true;  
+        // syslog(LOG_INFO, "YOU ARE ALLOWED: %s", ofp_print_tcp_seqnum(ofpbuf_data(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt)));
  
     }
     else{
@@ -2426,7 +2408,7 @@ static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
     all_bucket = group_first_live_bucket(ctx, group, 0);
 
     if(all_bucket){
-        yolozwag(ctx, all_bucket);
+        custom_group_bucket(ctx, all_bucket);
     }
 
 

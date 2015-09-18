@@ -22,7 +22,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <syslog.h>
 #include "coverage.h"
 #include "dynamic-string.h"
 #include "flow.h"
@@ -1193,11 +1193,14 @@ dpif_execute_with_help(struct dpif *dpif, struct dpif_execute *execute)
 
     COVERAGE_INC(dpif_execute_with_help);
 
-
-    odp_execute_actions(&aux, execute->packet, false, &execute->md,
-                        execute->actions, execute->actions_len,
-                        dpif_execute_helper_cb);
-    
+    if(execute->tcp_reordering)
+        odp_execute_buffer_actions(&aux, execute->packet, false, &execute->md,
+                            execute->actions, execute->actions_len,
+                            dpif_execute_helper_cb);
+    else
+        odp_execute_actions(&aux, execute->packet, false, &execute->md,
+                            execute->actions, execute->actions_len,
+                            dpif_execute_helper_cb);
     return aux.error;
 }
 
