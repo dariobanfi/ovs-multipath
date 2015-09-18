@@ -356,7 +356,7 @@ void update_expected_packet(struct ofpbuf *packet){
     size = get_tcp_payload_size(packet);
 
     if(tcp_flags & TCP_FIN){
-        syslog(LOG_INFO, "packet above was FIN");
+    syslog(LOG_INFO, "packet above was FIN");
         if(size==0)
             expected_seqnum+= 1; // FIN Without data
         else
@@ -393,69 +393,17 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
 
 
         if (tcp_flags & TCP_SYN){
-            if(!(tcp_flags & TCP_ACK)){  // for some reason i get the syn from the server ???
-                expected_seqnum = seq+1;
-            }
-            syslog(LOG_INFO, "SYN seq %"PRIu32 " new expected %"PRIu32, seq, expected_seqnum);
-            syns++;
-
-            odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                  dp_execute_action, false);
-            inserted_items = 0;
-            return;
+            syslog(LOG_INFO, "SYN seq %"PRIu32, seq);
         }
-
-        
-        // Send pkt and send the ones in order in the buf
-        if(seq == expected_seqnum){
-            syslog(LOG_INFO, "seq %"PRIu32 " expected %" PRIu32 " - sending", seq, expected_seqnum);
-
-            odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                  dp_execute_action, false);
-
-            // Check if there are packets waiting to be sent
-            int removed_items = 0;
-            int next_seqnum = expected_seqnum+packet_size;
-            for(i=inserted_items-1;i>= 0;i--){
-                seq_work = get_tcp_seq(minibuffer[i]);
-                if(seq_work == next_seqnum){
-                    syslog(LOG_INFO, "seq %" PRIu32 " expected %" PRIu32 " - sending from buffer", seq_work, next_seqnum);
-                    removed_items++;
-                    odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
-                        dp_execute_action, false);
-                    next_seqnum+=get_tcp_payload_size(minibuffer[i]);
-                    update_expected_packet(minibuffer[i]);
-                    ofpbuf_delete(minibuffer[i]);
-                }
-            }
-            inserted_items = inserted_items - removed_items;
-            if(removed_items==0)
-                update_expected_packet(packet);
-
-        }
-        //Buffer full
-        else if(inserted_items<10){
-            syslog(LOG_INFO, "seq %"PRIu32 " expected %" PRIu32 " - buffering", seq, expected_seqnum);
-            buf_pkt = ofpbuf_clone(packet);
-            insert_descending_order(buf_pkt);
-            update_expected_packet(packet);
+        else if(tcp_flags & TCP_FIN){
+             syslog(LOG_INFO, "FIN seq %"PRIu32, seq);
         }
         else{
-            syslog(LOG_INFO, "buffer full!");
-            seq_work = get_tcp_seq(minibuffer[inserted_items]);
-            if(seq_work<seq){
-                odp_execute_actions__(dp, minibuffer[inserted_items], steal, md, actions, actions_len,
-                    dp_execute_action, false);
-                inserted_items--;
-                buf_pkt = ofpbuf_clone(packet);
-                insert_descending_order(buf_pkt);
-            }
-            else{
-                odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                    dp_execute_action, false);
-            }
-            update_expected_packet(packet);
+             syslog(LOG_INFO, "seq %"PRIu32, seq);
         }
+        odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+                          dp_execute_action, false);
+
     }
 
     // Not TCP, just send out
