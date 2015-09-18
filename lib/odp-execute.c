@@ -349,6 +349,9 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
 
     uint32_t seq_work;
 
+    int packet_size = 1; // 1 Byte as we send only letters
+
+
     if(packet && get_ip_proto(ofpbuf_data(packet), ofpbuf_size(packet)) == IPPROTO_TCP){
         tcp = ofpbuf_l4(packet);
         tcp_flags = TCP_FLAGS(tcp->tcp_ctl);    
@@ -356,13 +359,18 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
 
         if (tcp_flags & TCP_SYN){
             syslog(LOG_INFO, "found_SYN %"PRIu32, seq);
-            expected_seqnum = seq;
-            odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                  dp_execute_action, false);
-            inserted_items = 0;
-            return;
-        }
+            syslog(LOG_INFO, "%s",ofp_packet_to_string(ofpbuf_data(packet), ofpbuf_size(packet)));
+            // if(expected_seqnum == -1){
+            //     expected_seqnum = seq+packet_size;
+            //     syslog(LOG_INFO, "SYN seq %"PRIu32 " new expected %"PRIu32, seq, expected_seqnum);
 
+            // }
+            // odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+            //       dp_execute_action, false);
+            // inserted_items = 0;
+            // return;
+        }
+        else{
         // else if(tcp_flags & TCP_FIN){
         //     syslog(LOG_INFO, "found_FIN %"PRIu32, seq);
         // }
@@ -370,51 +378,55 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
         //     syslog(LOG_INFO, "seq: %"PRIu32, seq);
         // }
 
-        int packet_size = 1;
 
         // Send pkt and send the ones in order in the buf
-        if(seq == expected_seqnum){
+        // if(seq <= expected_seqnum){
             syslog(LOG_INFO, "seq %"PRIu32 " expected %" PRIu32 " - sending", seq, expected_seqnum);
-            odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                  dp_execute_action, false);
-            expected_seqnum+= packet_size;
             
-            int to_be_removed = 0;
-
-            for(i=0;i<inserted_items;i++){
-                seq_work = get_tcp_seq(minibuffer[i]);
-                if(seq_work == expected_seqnum){
-                    to_be_removed++;
-                    odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
-                        dp_execute_action, false);
-                    expected_seqnum+=packet_size;
-                    ofpbuf_delete(minibuffer[i]);
-                }
-            }
-
-            inserted_items = inserted_items - to_be_removed;
-
         }
-        else if(inserted_items<10){
-            syslog(LOG_INFO, "seq %"PRIu32 " expected %" PRIu32 " - buffering", seq, expected_seqnum);
-            buf_pkt = ofpbuf_clone(packet);
-            insert_descending_order(buf_pkt);
-        }
-        else{
-            syslog(LOG_INFO, "buffer full!");
-            seq_work = get_tcp_seq(minibuffer[inserted_items]);
-            if(seq_work<seq){
-                odp_execute_actions__(dp, minibuffer[inserted_items], steal, md, actions, actions_len,
-                    dp_execute_action, false);
-                inserted_items--;
-                buf_pkt = ofpbuf_clone(packet);
-                insert_descending_order(buf_pkt);
-            }
-            else{
-                odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                    dp_execute_action, false);
-            }
-        }
+
+        odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+                  dp_execute_action, false);
+
+
+        //     expected_seqnum+= packet_size;
+            
+        //     int to_be_removed = 0;
+
+        //     for(i=0;i<inserted_items;i++){
+        //         seq_work = get_tcp_seq(minibuffer[i]);
+        //         if(seq_work == expected_seqnum){
+        //             to_be_removed++;
+        //             odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
+        //                 dp_execute_action, false);
+        //             expected_seqnum+=packet_size;
+        //             ofpbuf_delete(minibuffer[i]);
+        //         }
+        //     }
+
+        //     inserted_items = inserted_items - to_be_removed;
+
+        // }
+        // else if(inserted_items<10){
+        //     syslog(LOG_INFO, "seq %"PRIu32 " expected %" PRIu32 " - buffering", seq, expected_seqnum);
+        //     buf_pkt = ofpbuf_clone(packet);
+        //     insert_descending_order(buf_pkt);
+        // }
+        // else{
+        //     syslog(LOG_INFO, "buffer full!");
+        //     seq_work = get_tcp_seq(minibuffer[inserted_items]);
+        //     if(seq_work<seq){
+        //         odp_execute_actions__(dp, minibuffer[inserted_items], steal, md, actions, actions_len,
+        //             dp_execute_action, false);
+        //         inserted_items--;
+        //         buf_pkt = ofpbuf_clone(packet);
+        //         insert_descending_order(buf_pkt);
+        //     }
+        //     else{
+        //         odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+        //             dp_execute_action, false);
+        //     }
+        // }
 
     }
 

@@ -991,10 +991,10 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
 
         // MPSDN - NO NEED
         if (miss->xout.slow) {
-            // struct xlate_in xin;
+            struct xlate_in xin;
 
-            // xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL, 0, packet);
-            // xlate_actions_for_side_effects(&xin);
+            xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL, 0, packet);
+            xlate_actions_for_side_effects(&xin);
         }
 
         if (miss->flow.in_port.ofp_port
@@ -1103,7 +1103,6 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
      *
      * Copy packets before they are modified by execution. */
     if (fail_open) {
-        syslog(LOG_INFO, "Fail opn");
         for (i = 0; i < n_upcalls; i++) {
             struct upcall *upcall = &upcalls[i];
             struct flow_miss *miss = upcall->flow_miss;
@@ -1129,35 +1128,9 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
     for (i = 0; i < n_ops; i++) {
         //NEEDS REORDERING
         if(ops[i].u.execute.tcp_reordering && ops[i].u.execute.actions_len<=8){
-            // ADD TO BUFFER
-            // if(ops[i].u.execute.actions_len<=8){
-            //     syslog(LOG_INFO, "Adding to buf %d", dpif_execute_len);
-            //     struct dpif_execute * buf_item = malloc(sizeof(ops[i].u.execute));
-            //     dpif_execute_clone(buf_item, &ops[i].u.execute);
-            //     minibuf[dpif_execute_len] = buf_item;
-            //     dpif_execute_len++;
-            // }
-            // else{
-            //     syslog(LOG_INFO, "What the actual fuck?");
-            // }
-
-            // if(dpif_execute_len>4){
-            //     buf_must_be_emptied = true;
-            // }
             ops[i].u.execute.needs_help = true;
-            // struct dpif_op *buffed_op = malloc(sizeof(struct dpif_op));
-            // struct dpif_execute * buf_item = malloc(sizeof(ops[i].u.execute));
-            // dpif_execute_clone(buf_item, &ops[i].u.execute);
-            // buffed_op->u.execute = *buf_item;
-            // buffed_op->type = DPIF_OP_EXECUTE;
-            opsp[i] = &ops[i];
         }
-        // DOESN'T NEED REORDERING
-        else{
-            // syslog(LOG_INFO, "No need to reorder yo");
-            opsp[i] = &ops[i];
-            // real_n_ops++;
-        }
+        opsp[i] = &ops[i];
     }
 
     // if(buf_must_be_emptied){
