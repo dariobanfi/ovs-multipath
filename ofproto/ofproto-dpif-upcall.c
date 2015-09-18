@@ -893,29 +893,6 @@ destroy_upcall:
 
 
 
-static void dpif_execute_clone(struct dpif_execute *dst, struct dpif_execute *src){
-    struct nlattr *new_actions = malloc(sizeof(*src->actions));
-    *new_actions = *src->actions;
-    dst->actions = new_actions;
-    dst->actions_len = src->actions_len;
-    dst->packet = ofpbuf_clone_data_with_headroom(ofpbuf_data(src->packet), ofpbuf_size(src->packet), 0);
-    dst->tcp_reordering = src->tcp_reordering;
-    dst->needs_help = true;
-    struct pkt_metadata *metadata = malloc(sizeof(struct pkt_metadata));
-    memcpy(metadata, &src->md, sizeof(src->md));
-    dst->md = *metadata;
-}
-
-static void dpif_execute_free(struct dpif_execute * target){
-    free(target->actions);
-    ofpbuf_delete(target->packet);
-    free(target);
-}
-
-
-static struct dpif_execute *minibuf[50];
-static int dpif_execute_len = 0;
-
 static void
 handle_upcalls(struct handler *handler, struct hmap *misses,
                struct upcall *upcalls, size_t n_upcalls)
@@ -959,6 +936,7 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
              * packet was accounted to.  Presumably the revalidators will deal
              * with pushing its stats eventually. */
         }
+
         xin.pkt = packet;
         xlate_actions(&xin, &miss->xout);
         fail_open = fail_open || miss->xout.fail_open;
@@ -1073,7 +1051,7 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
         miss->flow.vlan_tci = flow_vlan_tci;
 
         // syslog(LOG_INFO, "TCP BUFFER? %d", miss->xout.tcp_reordering);
-
+        miss->xout.slow = SLOW_ACTION;
         if (ofpbuf_size(&miss->xout.odp_actions)) {
             op = &ops[n_ops++];
             op->type = DPIF_OP_EXECUTE;
@@ -1083,14 +1061,9 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
             op->u.execute.actions = ofpbuf_data(&miss->xout.odp_actions);
             op->u.execute.actions_len = ofpbuf_size(&miss->xout.odp_actions);
             op->u.execute.needs_help = (miss->xout.slow & SLOW_ACTION) != 0;
-            op->u.execute.tcp_reordering = miss->xout.tcp_reordering;
+            op->u.execute.tcp_reordering = true;
         }
     }
-
-
-
-    ////// ENDFOR
-
 
 
     /* Special case for fail-open mode.
@@ -1122,38 +1095,15 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
         }
     }
 
-    bool buf_must_be_emptied = false;
-
     /* Execute batch. */
     for (i = 0; i < n_ops; i++) {
-        //NEEDS REORDERING
+        // NEEDS REORDERING
         if(ops[i].u.execute.tcp_reordering && ops[i].u.execute.actions_len<=8){
             ops[i].u.execute.needs_help = true;
         }
         opsp[i] = &ops[i];
     }
-
-    // if(buf_must_be_emptied){
-    //     syslog(LOG_INFO, "Buf full");
-    //     buf_must_be_emptied = false;
-    //     int k;
-    //     for(k=0; k<dpif_execute_len;k++){
-    //         syslog(LOG_INFO, "emptying  %d", k);
-    //         struct dpif_op *buffed_op = malloc(sizeof(struct dpif_op));
-    //         buffed_op->type = DPIF_OP_EXECUTE;
-    //         buffed_op->u.execute = *minibuf[k];
-    //         opsp[real_n_ops] = buffed_op;
-    //         // dpif_execute_free(minibuf[k]);
-    //         // free(buffed_op);
-    //         real_n_ops++;
-    //     }
-    //     dpif_execute_len = 0;
-    // }
-
-    // syslog(LOG_INFO, "Executing %zu ops", real_n_ops);
-
-    // if(real_n_ops>0)
-        dpif_operate(udpif->dpif, opsp, n_ops);
+    dpif_operate(udpif->dpif, opsp, n_ops);
 
 }
 

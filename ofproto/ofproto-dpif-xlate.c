@@ -2276,40 +2276,10 @@ xlate_group_bucket(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
 }
 
 
-
-
-
-
-static struct xlate_ctx * copy_ctx(struct xlate_ctx * ctx){
-    struct xlate_in  *new_xin = malloc(sizeof(*ctx->xin));
-    struct xlate_out *new_xout = malloc(sizeof(*ctx->xout));
-    struct xlate_ctx *new_ctx = malloc(sizeof(*ctx));
-    memcpy(new_ctx, ctx, sizeof(*ctx));
-    memcpy(new_xin, ctx->xin, sizeof(*ctx->xin));
-    memcpy(new_xout, ctx->xout, sizeof(*ctx->xout));
-    new_ctx->xin = new_xin;
-    new_ctx->xout = new_xout;   
-    return new_ctx;
-}
-static uint8_t get_ip_proto(const struct ofpbuf *data, size_t len){
-    struct ds ds = DS_EMPTY_INITIALIZER;
-    const struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
-    struct ofpbuf buf;
-    struct flow flow;
-
-    ofpbuf_use_const(&buf, data, len);
-    flow_extract(&buf, &md, &flow);
-    flow_format(&ds, &flow);
-
-    return flow.nw_proto;
-}
-
-
 static void custom_group_bucket(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
 {
     uint64_t action_list_stub[1024 / 8];
     struct ofpbuf action_list, action_set;
-    char * msg;
     struct flow old_flow = ctx->xin->flow;
 
     ofpbuf_use_const(&action_set, bucket->ofpacts, bucket->ofpacts_len);
@@ -2319,75 +2289,9 @@ static void custom_group_bucket(struct xlate_ctx *ctx, const struct ofputil_buck
 
     ctx->recurse++;
 
+    ctx->xout->tcp_reordering = true;
 
-
-    // if(ctx->xin->pkt != NULL){
-    //     int proto = get_ip_proto(ctx->xin->pkt);
-    //     if(proto==17){
-    //         struct udp_header *uh;
-    //         const uint8_t *l7;
-    //         uh = ofpbuf_l4(ctx->xin->pkt);
-    //         l7 = ofpbuf_get_udp_payload(ctx->xin->pkt);
-    //         msg = ofpbuf_at(ctx->xin->pkt, l7 - (uint8_t *)ofpbuf_data(ctx->xin->pkt), ntohs(uh->udp_len)-8);
-    //         int payload = atoi(msg);
-    //         syslog(LOG_INFO, "Udp payload %d", payload);
-    //     }
-    //     else if (proto==6){
-    //         struct action_ctx element;
-    //         struct ofpbuf * buf_actions = ofpbuf_clone(ofpbuf_data(&action_list));
-    //         element.actions = buf_actions;
-    //         element.actions_size = ofpbuf_size(&action_list);
-    //         syslog(LOG_INFO, "ctx %p act %p", ctx, &action_list);
-    //         syslog(LOG_INFO, "TCP packet - Seq:%"PRIu16, get_tcp_seqnum(ctx->xin->pkt));
-
-
-    //     }
-    //     else{
-    //         syslog(LOG_INFO, "Protocol %d" , proto);
-    //     }
-    // }
-
-    if(ctx->xin->pkt != NULL){
-        // syslog(LOG_INFO, "%s", ofp_packet_to_string(ofpbuf_data(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt)));
-        int proto = get_ip_proto(ofpbuf_data(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt));
-        // syslog(LOG_INFO, "Proto: %"PRIu8, proto);
-        if(proto==17){
-    //         if(minibuf_size>5){
-    //             int i;
-    //             syslog(LOG_INFO, "Emptying buf:");
-    //             for (i=0;i<minibuf_size;i++){
-    //                 syslog(LOG_INFO, "ptr: %p", minibuf[i]);
-    //                 do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), minibuf[i]);
-
-    //             }
-    //             minibuf_size = 0;
-    //         }
-    //         else{
-    //             syslog(LOG_INFO, "Adding to buf");
-    //             minibuf[minibuf_size] = copy_ctx(ctx);
-    //             minibuf_size++;
-    //         }
-    //     }
-    //     else{
-    //         syslog(LOG_INFO, "Just forwarding");
-    //         do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
-    //     }
-            ctx->xout->tcp_reordering = false;
-    }
-    else if(proto == 6){
-        ctx->xout->tcp_reordering = true;  
-        // syslog(LOG_INFO, "YOU ARE ALLOWED: %s", ofp_print_tcp_seqnum(ofpbuf_data(ctx->xin->pkt), ofpbuf_size(ctx->xin->pkt)));
- 
-    }
-    else{
-        ctx->xout->tcp_reordering = false;
-    }
-    // else{
-
-    //     syslog(LOG_INFO, "null pkt");
-        do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
-   
-    }
+    do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
 
     ctx->recurse--;
     ofpbuf_uninit(&action_set);
