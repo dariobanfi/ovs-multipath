@@ -323,15 +323,21 @@ uint32_t get_tcp_seq(struct ofpbuf *packet){
 
 void insert_descending_order(struct ofpbuf *pkt){
     int i, index;
+    uint32_t seq_buf, seq_new;
 
     index = 0;
     if(inserted_items == 0){
         minibuffer[0] = pkt;
     }
     else{
+        seq_buf = get_tcp_seq(minibuffer[index]);
+        seq_new = get_tcp_seq(pkt);
         // Find the correct position for the item
-        while((get_tcp_seq(pkt) < get_tcp_seq(minibuffer[index])) && (index<inserted_items)){
+        while((seq_new < seq_buf) && (index<inserted_items)){
             index++;
+            if(minibuffer[index])
+                seq_buf = get_tcp_seq(minibuffer[index]);
+
         }
         // Shift the elements to the right
         for(i=inserted_items;i>index;i--){
@@ -367,7 +373,6 @@ void update_expected_packet(struct ofpbuf *packet){
     }
 
 }
-
 
 
 void
@@ -425,7 +430,7 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
                         dp_execute_action, false);
                     next_seqnum+=get_tcp_payload_size(minibuffer[i]);
                     update_expected_packet(minibuffer[i]);
-                    ofpbuf_delete(minibuffer[i]);
+                    // ofpbuf_delete(minibuffer[i]);
                 }
             }
             inserted_items = inserted_items - removed_items;
@@ -434,7 +439,7 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
 
         }
         //Buffer full
-        else if(inserted_items<10){
+        else if(inserted_items<90){
             syslog(LOG_INFO, "seq %"PRIu32 " expected %" PRIu32 " - buffering", seq, expected_seqnum);
             buf_pkt = ofpbuf_clone(packet);
             insert_descending_order(buf_pkt);
@@ -442,15 +447,17 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
         }
         else{
             syslog(LOG_INFO, "buffer full!");
-            seq_work = get_tcp_seq(minibuffer[inserted_items]);
+            seq_work = get_tcp_seq(minibuffer[inserted_items-1]);
             if(seq_work<seq){
-                odp_execute_actions__(dp, minibuffer[inserted_items], steal, md, actions, actions_len,
+                syslog(LOG_INFO, "seq %" PRIu32 " - sending lowest buffer element", seq_work);
+                odp_execute_actions__(dp, minibuffer[inserted_items-1], steal, md, actions, actions_len,
                     dp_execute_action, false);
                 inserted_items--;
                 buf_pkt = ofpbuf_clone(packet);
                 insert_descending_order(buf_pkt);
             }
             else{
+                syslog(LOG_INFO, "seq %" PRIu32 " - sending because buffer was full", seq);
                 odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
                     dp_execute_action, false);
             }

@@ -919,11 +919,8 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
      * We can't do this in the previous loop because we need the TCP flags for
      * all the packets in each miss. */
     fail_open = false;
-    j = 0;
     HMAP_FOR_EACH (miss, hmap_node, misses) {
         struct xlate_in xin;
-        struct upcall *upcall = &upcalls[j];
-        struct ofpbuf *packet = &upcall->dpif_upcall.packet;
 
         xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL,
                       miss->stats.tcp_flags, NULL);
@@ -937,10 +934,8 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
              * with pushing its stats eventually. */
         }
 
-        xin.pkt = packet;
         xlate_actions(&xin, &miss->xout);
         fail_open = fail_open || miss->xout.fail_open;
-        j++;
     }
 
     /* Now handle the packets individually in order of arrival.  In the common
@@ -1061,7 +1056,7 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
             op->u.execute.actions = ofpbuf_data(&miss->xout.odp_actions);
             op->u.execute.actions_len = ofpbuf_size(&miss->xout.odp_actions);
             op->u.execute.needs_help = (miss->xout.slow & SLOW_ACTION) != 0;
-            op->u.execute.tcp_reordering = true;
+            op->u.execute.tcp_reordering = miss->xout.tcp_reordering;
         }
     }
 
@@ -1098,9 +1093,9 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
     /* Execute batch. */
     for (i = 0; i < n_ops; i++) {
         // NEEDS REORDERING
-        if(ops[i].u.execute.tcp_reordering && ops[i].u.execute.actions_len<=8){
-            ops[i].u.execute.needs_help = true;
-        }
+        // if(ops[i].u.execute.tcp_reordering && ops[i].u.execute.actions_len<=8){
+        //     ops[i].u.execute.needs_help = true;
+        // }
         opsp[i] = &ops[i];
     }
     dpif_operate(udpif->dpif, opsp, n_ops);
