@@ -1014,7 +1014,7 @@ group_best_live_bucket(const struct xlate_ctx *ctx,
                    const struct group_dpif *group)
 {   
 
-    ctx->xout->slow |= SLOW_CONTROLLER;
+    ctx->xout->slow |= SLOW_ACTION;
 
     return weighted_probabilistic_switching(ctx, group);
     // return weighted_rr_switching(ctx, group);
@@ -2306,7 +2306,7 @@ static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
 {
     const struct ofputil_bucket *all_bucket;
 
-    ctx->xout->slow |= SLOW_CONTROLLER;
+    ctx->xout->slow |= SLOW_ACTION;
 
 
     all_bucket = group_first_live_bucket(ctx, group, 0);
@@ -3251,6 +3251,7 @@ xlate_out_uninit(struct xlate_out *xout)
 {
     if (xout) {
         ofpbuf_uninit(&xout->odp_actions);
+        xout->tcp_reordering = false;
     }
 }
 

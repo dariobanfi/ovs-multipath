@@ -305,8 +305,7 @@ odp_execute_actions__(void *dp, struct ofpbuf *packet, bool steal,
 
 static int inserted_items = 0;
 static int expected_seqnum  = -1;
-static struct ofpbuf *minibuffer[100];
-static int syns = 0;
+static struct ofpbuf *minibuffer[500];
 
 unsigned int get_tcp_payload_size(struct ofpbuf *packet){
     unsigned int packet_size;
@@ -323,15 +322,21 @@ uint32_t get_tcp_seq(struct ofpbuf *packet){
 
 void insert_descending_order(struct ofpbuf *pkt){
     int i, index;
+    uint32_t seq_buf, seq_new;
 
     index = 0;
     if(inserted_items == 0){
         minibuffer[0] = pkt;
     }
     else{
+        seq_buf = get_tcp_seq(minibuffer[index]);
+        seq_new = get_tcp_seq(pkt);
         // Find the correct position for the item
-        while((get_tcp_seq(pkt) < get_tcp_seq(minibuffer[index])) && (index<inserted_items)){
+        while((seq_new < seq_buf) && (index<inserted_items)){
             index++;
+            if(minibuffer[index])
+                seq_buf = get_tcp_seq(minibuffer[index]);
+
         }
         // Shift the elements to the right
         for(i=inserted_items;i>index;i--){
@@ -348,26 +353,37 @@ void update_expected_packet(struct ofpbuf *packet){
     unsigned int size;
     uint8_t tcp_flags;
     struct tcp_header *tcp;
-    uint32_t seq;
 
     tcp = ofpbuf_l4(packet);
     tcp_flags = TCP_FLAGS(tcp->tcp_ctl);    
-    seq = ntohl(get_16aligned_be32(&tcp->tcp_seq));
     size = get_tcp_payload_size(packet);
 
     if(tcp_flags & TCP_FIN){
-    syslog(LOG_INFO, "packet above was FIN");
-        if(size==0)
-            expected_seqnum+= 1; // FIN Without data
-        else
-            expected_seqnum +=size + 1; // Fin with data
+        syslog(LOG_INFO, "packet above was FIN");
+        expected_seqnum +=size + 1;
     }
     else{
         expected_seqnum += size;
     }
-
 }
 
+int get_next_seqnum(struct ofpbuf *packet){
+    unsigned int size;
+    uint8_t tcp_flags;
+    struct tcp_header *tcp;
+
+    tcp = ofpbuf_l4(packet);
+    tcp_flags = TCP_FLAGS(tcp->tcp_ctl);    
+    size = get_tcp_payload_size(packet);
+
+    if(tcp_flags & TCP_FIN){
+        syslog(LOG_INFO, "packet above was FIN");
+        return expected_seqnum + size + 1;
+    }
+    else{
+        return expected_seqnum + size;
+    }
+}
 
 
 void
@@ -393,17 +409,67 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
 
 
         if (tcp_flags & TCP_SYN){
-            syslog(LOG_INFO, "SYN seq %"PRIu32, seq);
+            expected_seqnum = seq+1;
+            syslog(LOG_INFO, "SYN seq %"PRIu32 " new expected %"PRIu32, seq, expected_seqnum);
+            odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+                  dp_execute_action, false);
+            inserted_items = 0;
+            // TODO: delete buffer ofpbufs here
+            return;
         }
-        else if(tcp_flags & TCP_FIN){
-             syslog(LOG_INFO, "FIN seq %"PRIu32, seq);
+
+        
+        // Send pkt and send the ones in order in the buf
+        if(seq == expected_seqnum){
+            syslog(LOG_INFO, "seq %"PRIu32 " expected %" PRIu32 " - sending", seq, expected_seqnum);
+
+            odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+                  dp_execute_action, false);
+
+            expected_seqnum = get_next_seqnum(packet);
+
+            // Check if there are packets waiting to be sent
+            int removed_items = 0;
+            int next_seqnum = expected_seqnum;
+            for(i=inserted_items-1;i>= 0;i--){
+                seq_work = get_tcp_seq(minibuffer[i]);
+                if(seq_work == expected_seqnum){
+                    syslog(LOG_INFO, "seq %" PRIu32 " expected %" PRIu32 " - sending from buffer (size %d) ", seq_work, next_seqnum, inserted_items - removed_items);
+                    removed_items++;
+                    odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
+                        dp_execute_action, false);
+                    expected_seqnum = get_next_seqnum(minibuffer[i]);
+                }
+            }
+
+            inserted_items = inserted_items - removed_items;
+            
+
+        }
+        //Buffer full
+        else if(inserted_items<150){
+            syslog(LOG_INFO, "seq %"PRIu32 " expected %" PRIu32 " - buffering (size %d)", seq, expected_seqnum, inserted_items);
+            buf_pkt = ofpbuf_clone(packet);
+            insert_descending_order(buf_pkt);
         }
         else{
-             syslog(LOG_INFO, "seq %"PRIu32, seq);
+            syslog(LOG_INFO, "buffer full!");
+            seq_work = get_tcp_seq(minibuffer[inserted_items-1]);
+            if(seq_work<seq){
+                syslog(LOG_INFO, "seq %" PRIu32 " - sending lowest buffer element", seq_work);
+                odp_execute_actions__(dp, minibuffer[inserted_items-1], steal, md, actions, actions_len,
+                    dp_execute_action, false);
+                inserted_items--;
+                buf_pkt = ofpbuf_clone(packet);
+                insert_descending_order(buf_pkt);
+            }
+            else{
+                syslog(LOG_INFO, "seq %" PRIu32 " - sending because buffer was full", seq);
+                odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+                    dp_execute_action, false);
+            }
+            update_expected_packet(packet);
         }
-        odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                          dp_execute_action, false);
-
     }
 
     // Not TCP, just send out
