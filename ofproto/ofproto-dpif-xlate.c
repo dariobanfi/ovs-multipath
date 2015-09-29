@@ -12,6 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License. */
 
+#include <unistd.h>
 #include <config.h>
 #include <syslog.h>
 #include "ofproto/ofproto-dpif-xlate.h"
@@ -954,13 +955,15 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
 
-    if(chosen_bucket == 0 && counter == 6 ){
+    if(chosen_bucket == 0 && counter == 50){
         chosen_bucket = 1;
         counter = 0;
+        // usleep(1000000);
     }
-    else if(chosen_bucket == 1 && counter==10){
+    else if(chosen_bucket == 1 && counter== 50){
         chosen_bucket = 0;
         counter = 0;
+        // usleep(1000000);
     }
     counter ++;
 
@@ -972,6 +975,7 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
                 return bucket;
             }
             else{
+                syslog(LOG_INFO, "not supposed to happen");
                 // TODO: Randomly choose another bucker for fault-tolerance
             }
         }
@@ -980,6 +984,26 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
 
     return bucket;
 }
+
+static uint8_t get_ip_proto(const struct ofpbuf *data, size_t len){
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    const struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
+    struct ofpbuf buf;
+    struct flow flow;
+
+    ofpbuf_use_const(&buf, data, len);
+    flow_extract(&buf, &md, &flow);
+    flow_format(&ds, &flow);
+
+    return flow.nw_proto;
+}
+
+uint32_t getseq(struct ofpbuf *packet){
+    struct tcp_header *tcp;
+    tcp = ofpbuf_l4(packet);
+    return ntohl(get_16aligned_be32(&tcp->tcp_seq));
+}
+
 
 static const struct ofputil_bucket *
 weighted_probabilistic_switching(const struct xlate_ctx *ctx,
@@ -1006,6 +1030,7 @@ weighted_probabilistic_switching(const struct xlate_ctx *ctx,
             }
         }
     }
+
     return bucket; // return NULL
 }
 
@@ -1014,10 +1039,11 @@ group_best_live_bucket(const struct xlate_ctx *ctx,
                    const struct group_dpif *group)
 {   
 
+
     ctx->xout->slow |= SLOW_ACTION;
 
-    return weighted_probabilistic_switching(ctx, group);
-    // return weighted_rr_switching(ctx, group);
+    // return weighted_probabilistic_switching(ctx, group);
+    return weighted_rr_switching(ctx, group);
 }
 
 

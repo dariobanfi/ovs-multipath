@@ -964,10 +964,10 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
 
         // MPSDN - NO NEED
         if (miss->xout.slow) {
-            struct xlate_in xin;
+            // struct xlate_in xin;
 
-            xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL, 0, packet);
-            xlate_actions_for_side_effects(&xin);
+            // xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL, 0, packet);
+            // xlate_actions_for_side_effects(&xin);
         }
 
         if (miss->flow.in_port.ofp_port
@@ -1045,8 +1045,6 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
          * upcall. */
         miss->flow.vlan_tci = flow_vlan_tci;
 
-        // syslog(LOG_INFO, "TCP BUFFER? %d", miss->xout.tcp_reordering);
-        miss->xout.slow = SLOW_ACTION;
         if (ofpbuf_size(&miss->xout.odp_actions)) {
             op = &ops[n_ops++];
             op->type = DPIF_OP_EXECUTE;
@@ -1057,6 +1055,7 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
             op->u.execute.actions_len = ofpbuf_size(&miss->xout.odp_actions);
             op->u.execute.needs_help = (miss->xout.slow & SLOW_ACTION) != 0;
             op->u.execute.tcp_reordering = miss->xout.tcp_reordering;
+            op->u.execute.in_port = miss->flow.in_port.ofp_port;
         }
     }
 
@@ -1092,10 +1091,6 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
 
     /* Execute batch. */
     for (i = 0; i < n_ops; i++) {
-        // NEEDS REORDERING
-        // if(ops[i].u.execute.tcp_reordering && ops[i].u.execute.actions_len<=8){
-        //     ops[i].u.execute.needs_help = true;
-        // }
         opsp[i] = &ops[i];
     }
     dpif_operate(udpif->dpif, opsp, n_ops);
