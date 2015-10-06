@@ -1531,8 +1531,6 @@ dpif_netdev_flow_dump_done(const struct dpif *dpif OVS_UNUSED, void *iter_)
 static int
 dpif_netdev_execute(struct dpif *dpif, struct dpif_execute *execute)
 {
-
-     VLOG_WARN("executing");
     struct dp_netdev *dp = get_dp_netdev(dpif);
     struct pkt_metadata *md = &execute->md;
     struct {
@@ -1662,8 +1660,6 @@ static int
 dpif_netdev_recv(struct dpif *dpif, uint32_t handler_id,
                  struct dpif_upcall *upcall, struct ofpbuf *buf)
 {
-
-     VLOG_WARN("rcv");
     struct dp_netdev *dp = get_dp_netdev(dpif);
     struct dp_netdev_queue *q;
     int error = 0;
@@ -1791,8 +1787,6 @@ dp_netdev_process_rxq_port(struct dp_netdev *dp,
 static void
 dpif_netdev_run(struct dpif *dpif)
 {
-
-     VLOG_WARN("ruuum.");
     struct dp_netdev_port *port;
     struct dp_netdev *dp = get_dp_netdev(dpif);
 
@@ -2073,7 +2067,7 @@ dp_netdev_output_userspace(struct dp_netdev *dp, struct ofpbuf *packet,
 {
     struct dp_netdev_queue *q;
     int error;
-     VLOG_WARN("urspc");
+
     fat_rwlock_rdlock(&dp->queue_rwlock);
     q = &dp->handler_queues[queue_no];
     ovs_mutex_lock(&q->mutex);

@@ -1193,14 +1193,21 @@ dpif_execute_with_help(struct dpif *dpif, struct dpif_execute *execute)
 
     COVERAGE_INC(dpif_execute_with_help);
 
-    if(execute->tcp_reordering)
+    if(execute->tcp_reordering){
         odp_execute_buffer_actions(&aux, execute->packet, false, &execute->md,
                             execute->actions, execute->actions_len,
                             dpif_execute_helper_cb, execute->in_port);
-    else
+    }
+    else if(execute->daps){
+        odp_execute_daps(&aux, execute->packet, false, &execute->md,
+                            execute->actions, execute->actions_len,
+                            dpif_execute_helper_cb);
+    }
+    else{
         odp_execute_actions(&aux, execute->packet, false, &execute->md,
                             execute->actions, execute->actions_len,
                             dpif_execute_helper_cb);
+    }
     return aux.error;
 }
 

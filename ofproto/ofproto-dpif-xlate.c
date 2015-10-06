@@ -944,9 +944,10 @@ group_first_live_bucket(const struct xlate_ctx *ctx,
     return NULL;
 }
 
+pthread_mutex_t mutex_lock;
 
 static int counter = 0;
-static int chosen_bucket = 1;
+static int chosen_bucket = 0;
 static const struct ofputil_bucket *
 weighted_rr_switching(const struct xlate_ctx *ctx,
     const struct group_dpif *group){
@@ -955,17 +956,25 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
 
-    if(chosen_bucket == 0 && counter == 50){
+    if(chosen_bucket == 0 && counter >= 100){
+        pthread_mutex_lock(&mutex_lock);
         chosen_bucket = 1;
         counter = 0;
-        // usleep(1000000);
+        // usleep(10000);
+        pthread_mutex_unlock(&mutex_lock);
+
     }
-    else if(chosen_bucket == 1 && counter== 50){
+    else if(chosen_bucket == 1 && counter >= 100){
+        pthread_mutex_lock(&mutex_lock);
         chosen_bucket = 0;
         counter = 0;
-        // usleep(1000000);
+        // usleep(10000);
+        pthread_mutex_unlock(&mutex_lock);
     }
-    counter ++;
+    pthread_mutex_lock(&mutex_lock);
+    counter++;
+    pthread_mutex_unlock(&mutex_lock);
+    
 
     j = 0;
     group_dpif_get_buckets(group, &buckets);
@@ -973,6 +982,7 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
         if(chosen_bucket==j){
             if (bucket_is_alive(ctx, bucket, 0)) {
                 return bucket;
+
             }
             else{
                 syslog(LOG_INFO, "not supposed to happen");
@@ -2363,7 +2373,7 @@ xlate_select_group(struct xlate_ctx *ctx, struct group_dpif *group)
     struct flow_wildcards *wc = &ctx->xout->wc;
     const struct ofputil_bucket *bucket;
 
-    
+    ctx->xout->daps = true;
     
     bucket = group_best_live_bucket(ctx, group);
     if (bucket) {

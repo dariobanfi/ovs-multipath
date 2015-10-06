@@ -50,6 +50,7 @@ struct xlate_out {
     struct flow_wildcards wc;
 
     bool tcp_reordering;
+    bool daps;
     enum slow_path_reason slow; /* 0 if fast path may be used. */
     bool fail_open;             /* Initial rule is fail open? */
     bool has_learn;             /* Actions include NXAST_LEARN? */

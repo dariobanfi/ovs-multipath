@@ -391,7 +391,7 @@ int get_next_seqnum(int seq, struct ofpbuf *packet){
 }
 
 
-
+int xxxx = 0;
 void
 odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
                     struct pkt_metadata *md,
@@ -404,9 +404,15 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
     uint32_t seq;
     int i;
     uint32_t seq_work;
- 
 
+    if(packet && get_ip_proto(ofpbuf_data(packet), ofpbuf_size(packet)) == IPPROTO_UDP){
+        syslog(LOG_INFO, "pkt %d coming from %" PRIu32, xxxx, in_port);
+        xxxx++;
+    }       
+ 
     if(packet && get_ip_proto(ofpbuf_data(packet), ofpbuf_size(packet)) == IPPROTO_TCP){
+                
+
         tcp = ofpbuf_l4(packet);
         tcp_flags = TCP_FLAGS(tcp->tcp_ctl);    
         seq = get_tcp_seq(packet);
@@ -469,7 +475,7 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
 
         }
         //Buffer full
-        else if(inserted_items<500){
+        else if(inserted_items<400){
             syslog(LOG_INFO, "buffering %"PRIu32 " expected %" PRIu32 " port %"PRIu32 " size %d", seq, expected_seqnum, in_port, inserted_items);
             buf_pkt = ofpbuf_clone(packet);
             insert_descending_order(buf_pkt);
@@ -491,9 +497,8 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
                     syslog(LOG_INFO, "resetting %" PRIu32, seq_work);
                     odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
                         dp_execute_action, false);
-                    if(i==0)
-                        expected_seqnum = get_next_seqnum(seq_work, minibuffer[i]);
                 }
+
                 pthread_mutex_lock(&mutex_lock);
                 inserted_items=0;
                 pthread_mutex_unlock(&mutex_lock);
@@ -501,6 +506,7 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
             }
             // Buf packet is smaller
             else{
+
                 syslog(LOG_INFO, "resetting %" PRIu32 " - sending lowest buf packet and emptying", get_tcp_seq(minibuffer[inserted_items-1]));
                 odp_execute_actions__(dp, minibuffer[inserted_items-1], steal, md, actions, actions_len,
                     dp_execute_action, false);
@@ -509,24 +515,15 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
                 inserted_items--;
                 pthread_mutex_unlock(&mutex_lock);
 
-                // Highest seq yet is packet's
-                expected_seqnum = get_next_seqnum(get_tcp_seq(packet), packet);
-
+              
                 buf_pkt = ofpbuf_clone(packet);
                 insert_descending_order(buf_pkt);
 
-                for(i=inserted_items-1;i>= 0;i--){
-                    seq_work = get_tcp_seq(minibuffer[i]);
-                    syslog(LOG_INFO, "resetting %" PRIu32 " sending out best effort", seq_work);
-                    odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
-                        dp_execute_action, false);
-                }
-
-                pthread_mutex_lock(&mutex_lock);
-                inserted_items=0;
-                pthread_mutex_unlock(&mutex_lock);
+                
 
             }
+            expected_seqnum += (get_tcp_payload_size(packet)*20);
+
         }
     }
 
@@ -550,11 +547,32 @@ void
 odp_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
                     struct pkt_metadata *md,
                     const struct nlattr *actions, size_t actions_len,
-                    odp_execute_cb dp_execute_action)
+                    odp_execute_cb dp_execute_action)   
 {
 
     odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
                           dp_execute_action, false);
+
+
+    if (!actions_len && steal) {
+        /* Drop action. */
+        ofpbuf_delete(packet);
+    }
+}
+
+
+void
+odp_execute_daps(void *dp, struct ofpbuf *packet, bool steal,
+                    struct pkt_metadata *md,
+                    const struct nlattr *actions, size_t actions_len,
+                    odp_execute_cb dp_execute_action)
+{
+
+
+
+    // syslog(LOG_INFO, "Packet out");
+    odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+      dp_execute_action, false);
 
 
     if (!actions_len && steal) {
