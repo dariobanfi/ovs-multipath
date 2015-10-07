@@ -959,15 +959,19 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
          * generate proper mega flow masks for VLAN splinter flows. */
         flow_vlan_tci = miss->flow.vlan_tci;
 
-        // MPSDN - NO NEED
+        // ###BEGIN - MPSDN MODIFICATION ###
+        // Disabling side-effects actions for multipath
+        // packets so that they don't mess up the round-robin
+        // counters.
         if (miss->xout.slow) {
-            if(!miss->xout.daps){
+            if(!miss->xout.mpsdn){
                 struct xlate_in xin;
 
                 xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL, 0, packet);
                 xlate_actions_for_side_effects(&xin);
             }
         }
+        // ###END - MPSDN MODIFICATION ###
 
         if (miss->flow.in_port.ofp_port
             != vsp_realdev_to_vlandev(miss->ofproto,
@@ -1053,9 +1057,11 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
             op->u.execute.actions = ofpbuf_data(&miss->xout.odp_actions);
             op->u.execute.actions_len = ofpbuf_size(&miss->xout.odp_actions);
             op->u.execute.needs_help = (miss->xout.slow & SLOW_ACTION) != 0;
+            // ###BEGIN - MPSDN MODIFICATION ###
             op->u.execute.tcp_reordering = miss->xout.tcp_reordering;
             op->u.execute.in_port = miss->flow.in_port.ofp_port;
-            op->u.execute.daps = miss->xout.daps;
+            op->u.execute.mpsdn = miss->xout.mpsdn;
+            // ###END - MPSDN MODIFICATION ###
         }
     }
 

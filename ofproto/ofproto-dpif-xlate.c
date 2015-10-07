@@ -58,7 +58,7 @@ COVERAGE_DEFINE(xlate_actions_oversize);
 COVERAGE_DEFINE(xlate_actions_too_many_output);
 COVERAGE_DEFINE(xlate_actions_mpls_overflow);
 
-    VLOG_DEFINE_THIS_MODULE(ofproto_dpif_xlate);
+VLOG_DEFINE_THIS_MODULE(ofproto_dpif_xlate);
 
 /* Maximum depth of flow table recursion (due to resubmit actions) in a
  * flow translation. */
@@ -298,7 +298,7 @@ struct xlate_cache {
     struct ofpbuf entries;
 };
 
-static bool is_srand_initialized = false;
+static bool is_randomgenerator_initialized = false;
 
 
 static struct hmap xbridges = HMAP_INITIALIZER(&xbridges);
@@ -944,6 +944,8 @@ group_first_live_bucket(const struct xlate_ctx *ctx,
     return NULL;
 }
 
+
+// ###BEGIN - MPSDN MODIFICATION ###
 pthread_mutex_t mutex_lock;
 
 static int counter = 0;
@@ -952,11 +954,12 @@ static const struct ofputil_bucket *
 weighted_rr_switching(const struct xlate_ctx *ctx,
     const struct group_dpif *group){
 
+
     int j;
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
 
-    if(chosen_bucket == 0 && counter >= 100){
+    if(chosen_bucket == 0 && (counter % 100 == 0)){
         pthread_mutex_lock(&mutex_lock);
         chosen_bucket = 1;
         counter = 0;
@@ -964,7 +967,7 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
         pthread_mutex_unlock(&mutex_lock);
 
     }
-    else if(chosen_bucket == 1 && counter >= 100){
+    else if(chosen_bucket == 1 && (counter % 100 == 0)){
         pthread_mutex_lock(&mutex_lock);
         chosen_bucket = 0;
         counter = 0;
@@ -995,26 +998,6 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
     return bucket;
 }
 
-static uint8_t get_ip_proto(const struct ofpbuf *data, size_t len){
-    struct ds ds = DS_EMPTY_INITIALIZER;
-    const struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
-    struct ofpbuf buf;
-    struct flow flow;
-
-    ofpbuf_use_const(&buf, data, len);
-    flow_extract(&buf, &md, &flow);
-    flow_format(&ds, &flow);
-
-    return flow.nw_proto;
-}
-
-uint32_t getseq(struct ofpbuf *packet){
-    struct tcp_header *tcp;
-    tcp = ofpbuf_l4(packet);
-    return ntohl(get_16aligned_be32(&tcp->tcp_seq));
-}
-
-
 static const struct ofputil_bucket *
 weighted_probabilistic_switching(const struct xlate_ctx *ctx,
     const struct group_dpif *group){
@@ -1022,13 +1005,13 @@ weighted_probabilistic_switching(const struct xlate_ctx *ctx,
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
 
-    // initialize random seed once
-    if (!is_srand_initialized) {
+    // Initialize random generator
+    if (!is_randomgenerator_initialized) {
         srand(time(NULL));
-        is_srand_initialized = true;
+        is_randomgenerator_initialized = true;
     }
 
-    // generate a random number in [1, 1000]
+    // Generate a number between [1, 1000]
     rand_num = (rand() % 1000) + 1;
 
     group_dpif_get_buckets(group, &buckets);
@@ -1036,12 +1019,12 @@ weighted_probabilistic_switching(const struct xlate_ctx *ctx,
         if (bucket_is_alive(ctx, bucket, 0)) {
             sum += bucket->weight;
             if (rand_num <= sum) {
-                return bucket; // return this bucket
+                return bucket;
             }
         }
     }
 
-    return bucket; // return NULL
+    return bucket; // Return NULL, shouldn't happen
 }
 
 static const struct ofputil_bucket *
@@ -1052,10 +1035,11 @@ group_best_live_bucket(const struct xlate_ctx *ctx,
 
     ctx->xout->slow |= SLOW_ACTION;
 
-    // return weighted_probabilistic_switching(ctx, group);
-    return weighted_rr_switching(ctx, group);
+    return weighted_probabilistic_switching(ctx, group);
+    // return weighted_rr_switching(ctx, group);
 }
 
+// ###END - MPSDN MODIFICATION ###
 
 static bool
 xbundle_trunks_vlan(const struct xbundle *bundle, uint16_t vlan)
@@ -2311,8 +2295,8 @@ xlate_group_bucket(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
     ctx->exit = false;
 }
 
-
-static void custom_group_bucket(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
+// ###BEGIN - MPSDN MODIFICATION ###
+static void xlate_group_bucket_reordering(struct xlate_ctx *ctx, const struct ofputil_bucket *bucket)
 {
     uint64_t action_list_stub[1024 / 8];
     struct ofpbuf action_list, action_set;
@@ -2334,11 +2318,25 @@ static void custom_group_bucket(struct xlate_ctx *ctx, const struct ofputil_buck
     ofpbuf_uninit(&action_list);
     ctx->xin->flow = old_flow;
     ctx->exit = false;
+}
+// ###END - MPSDN MODIFICATION ###
 
+static void
+xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
+{
+    const struct ofputil_bucket *bucket;
+    const struct list *buckets;
 
+    group_dpif_get_buckets(group, &buckets);
+
+    LIST_FOR_EACH (bucket, list_node, buckets) {
+        xlate_group_bucket(ctx, bucket);
+    }
 }
 
-static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
+// ###BEGIN - MPSDN MODIFICATION ###
+
+static void xlate_reordering_group(struct xlate_ctx *ctx, struct group_dpif *group)
 {
     const struct ofputil_bucket *all_bucket;
 
@@ -2348,12 +2346,11 @@ static void xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
     all_bucket = group_first_live_bucket(ctx, group, 0);
 
     if(all_bucket){
-        custom_group_bucket(ctx, all_bucket);
+        xlate_group_bucket_reordering(ctx, all_bucket);
     }
-
-
-
 }
+// ###END - MPSDN MODIFICATION ###
+
 
 static void
 xlate_ff_group(struct xlate_ctx *ctx, struct group_dpif *group)
@@ -2373,8 +2370,10 @@ xlate_select_group(struct xlate_ctx *ctx, struct group_dpif *group)
     struct flow_wildcards *wc = &ctx->xout->wc;
     const struct ofputil_bucket *bucket;
 
-    ctx->xout->daps = true;
-    
+    // ###BEGIN - MPSDN MODIFICATION ###
+    ctx->xout->mpsdn = true;
+    // ###END - MPSDN MODIFICATION ###
+
     bucket = group_best_live_bucket(ctx, group);
     if (bucket) {
         memset(&wc->masks.dl_dst, 0xff, sizeof wc->masks.dl_dst);
@@ -2392,6 +2391,11 @@ xlate_group_action__(struct xlate_ctx *ctx, struct group_dpif *group)
     case OFPGT11_INDIRECT:
         xlate_all_group(ctx, group);
         break;
+    // ### BEGIN - MPSDN MODIFICATION ###
+    case OFPGT11_REORDERING:
+        xlate_reordering_group(ctx, group);
+        break;
+    // ### END - MPSDN MODIFICATION ###
     case OFPGT11_SELECT:
         xlate_select_group(ctx, group);
         break;

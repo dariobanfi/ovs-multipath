@@ -540,6 +540,7 @@ ofproto_create(const char *datapath_name, const char *datapath_type,
     ofproto->ogf.capabilities = OFPGFC_CHAINING | OFPGFC_SELECT_LIVENESS |
                                 OFPGFC_SELECT_WEIGHT;
     ofproto->ogf.max_groups[OFPGT11_ALL] = OFPG_MAX;
+    ofproto->ogf.max_groups[OFPGT11_REORDERING] = OFPG_MAX;
     ofproto->ogf.max_groups[OFPGT11_SELECT] = OFPG_MAX;
     ofproto->ogf.max_groups[OFPGT11_INDIRECT] = OFPG_MAX;
     ofproto->ogf.max_groups[OFPGT11_FF] = OFPG_MAX;
@@ -5589,7 +5590,7 @@ add_group(struct ofproto *ofproto, struct ofputil_group_mod *gm)
     if (gm->group_id > OFPG_MAX) {
         return OFPERR_OFPGMFC_INVALID_GROUP;
     }
-    if (gm->type > OFPGT11_FF) {
+    if (gm->type > OFPGT11_REORDERING) {
         return OFPERR_OFPGMFC_BAD_TYPE;
     }
 

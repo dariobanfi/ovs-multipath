@@ -479,7 +479,8 @@ enum ofp11_group_type {
     OFPGT11_ALL,      /* All (multicast/broadcast) group. */
     OFPGT11_SELECT,   /* Select group. */
     OFPGT11_INDIRECT, /* Indirect group. */
-    OFPGT11_FF        /* Fast failover group. */
+    OFPGT11_FF,        /* Fast failover group. */
+    OFPGT11_REORDERING, /* Reordering group */
 };
 
 /* Group numbering. Groups can use any number up to OFPG_MAX. */

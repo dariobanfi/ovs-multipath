@@ -16,8 +16,6 @@
  */
 
 #include <syslog.h>
-
-
 #include <config.h>
 #include "packets.h"
 #include "odp-execute.h"
@@ -35,19 +33,6 @@
 #include "ofp-print.h"
 #include "dynamic-string.h"
 
-
-static uint8_t get_ip_proto(const struct ofpbuf *data, size_t len){
-    struct ds ds = DS_EMPTY_INITIALIZER;
-    const struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
-    struct ofpbuf buf;
-    struct flow flow;
-
-    ofpbuf_use_const(&buf, data, len);
-    flow_extract(&buf, &md, &flow);
-    flow_format(&ds, &flow);
-
-    return flow.nw_proto;
-}
 
 static void
 odp_eth_set_addrs(struct ofpbuf *packet,
@@ -309,19 +294,6 @@ static struct ofpbuf *minibuffer[1000];
 pthread_mutex_t mutex_lock;
     
 
-unsigned int get_tcp_payload_size(struct ofpbuf *packet){
-    unsigned int packet_size;
-    const char *l7 = ofpbuf_get_tcp_payload(packet);
-    packet_size = (char *) ofpbuf_tail(packet) - l7;
-    return packet_size;
-}
-
-uint32_t get_tcp_seq(struct ofpbuf *packet){
-    struct tcp_header *tcp;
-    tcp = ofpbuf_l4(packet);
-    return ntohl(get_16aligned_be32(&tcp->tcp_seq));
-}
-
 void insert_descending_order(struct ofpbuf *pkt){
 
     int i, index;
@@ -497,6 +469,8 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
                     syslog(LOG_INFO, "resetting %" PRIu32, seq_work);
                     odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
                         dp_execute_action, false);
+                    if(i==0)
+                        expected_seqnum = get_tcp_seq(minibuffer[i])+1448;
                 }
 
                 pthread_mutex_lock(&mutex_lock);
@@ -519,10 +493,22 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
                 buf_pkt = ofpbuf_clone(packet);
                 insert_descending_order(buf_pkt);
 
-                
+                for(i=inserted_items-1;i>= 0;i--){
+                    seq_work = get_tcp_seq(minibuffer[i]);
+                    syslog(LOG_INFO, "resetting %" PRIu32, seq_work);
+                    odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
+                        dp_execute_action, false);
+                    if(i==0)
+                        expected_seqnum = get_tcp_seq(minibuffer[i])+1448;
 
+                }
+
+                pthread_mutex_lock(&mutex_lock);
+                inserted_items=0;
+                pthread_mutex_unlock(&mutex_lock);
             }
-            expected_seqnum += (get_tcp_payload_size(packet)*20);
+
+            expected_seqnum += (get_tcp_payload_size(packet)*50);
 
         }
     }
@@ -552,8 +538,6 @@ odp_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
 
     odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
                           dp_execute_action, false);
-
-
     if (!actions_len && steal) {
         /* Drop action. */
         ofpbuf_delete(packet);
@@ -562,18 +546,14 @@ odp_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
 
 
 void
-odp_execute_daps(void *dp, struct ofpbuf *packet, bool steal,
+odp_execute_mpsdn(void *dp, struct ofpbuf *packet, bool steal,
                     struct pkt_metadata *md,
                     const struct nlattr *actions, size_t actions_len,
                     odp_execute_cb dp_execute_action)
 {
 
-
-
-    // syslog(LOG_INFO, "Packet out");
     odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
       dp_execute_action, false);
-
 
     if (!actions_len && steal) {
         /* Drop action. */

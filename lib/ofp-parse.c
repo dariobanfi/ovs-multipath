@@ -2249,6 +2249,8 @@ parse_ofp_group_mod_str__(struct ofputil_group_mod *gm, uint16_t command,
             }
             if (!strcmp(value, "all")) {
                 gm->type = OFPGT11_ALL;
+            } else if (!strcmp(value, "reordering")) {
+                gm->type = OFPGT11_REORDERING;
             } else if (!strcmp(value, "select")) {
                 gm->type = OFPGT11_SELECT;
             } else if (!strcmp(value, "indirect")) {

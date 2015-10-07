@@ -1193,13 +1193,14 @@ dpif_execute_with_help(struct dpif *dpif, struct dpif_execute *execute)
 
     COVERAGE_INC(dpif_execute_with_help);
 
+    // ### BEGIN - MPSDN MODIFICATION ###
     if(execute->tcp_reordering){
         odp_execute_buffer_actions(&aux, execute->packet, false, &execute->md,
                             execute->actions, execute->actions_len,
                             dpif_execute_helper_cb, execute->in_port);
     }
-    else if(execute->daps){
-        odp_execute_daps(&aux, execute->packet, false, &execute->md,
+    else if(execute->mpsdn){
+        odp_execute_mpsdn(&aux, execute->packet, false, &execute->md,
                             execute->actions, execute->actions_len,
                             dpif_execute_helper_cb);
     }
@@ -1208,6 +1209,7 @@ dpif_execute_with_help(struct dpif *dpif, struct dpif_execute *execute)
                             execute->actions, execute->actions_len,
                             dpif_execute_helper_cb);
     }
+    // ### END - MPSDN MODIFICATION ###
     return aux.error;
 }
 

@@ -956,3 +956,34 @@ packet_format_tcp_flags(struct ds *s, uint16_t tcp_flags)
         ds_put_cstr(s, "[800]");
     }
 }
+
+
+// ###BEGIN - MPSDN MODIFICATION ###
+
+uint8_t get_ip_proto(const struct ofpbuf *data, size_t len){
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    const struct pkt_metadata md = PKT_METADATA_INITIALIZER(0);
+    struct ofpbuf buf;
+    struct flow flow;
+
+    ofpbuf_use_const(&buf, data, len);
+    flow_extract(&buf, &md, &flow);
+    flow_format(&ds, &flow);
+    return flow.nw_proto;
+}
+
+
+unsigned int get_tcp_payload_size(struct ofpbuf *packet){
+    unsigned int packet_size;
+    const char *l7 = ofpbuf_get_tcp_payload(packet);
+    packet_size = (char *) ofpbuf_tail(packet) - l7;
+    return packet_size;
+}
+
+uint32_t get_tcp_seq(struct ofpbuf *packet){
+    struct tcp_header *tcp;
+    tcp = ofpbuf_l4(packet);
+    return ntohl(get_16aligned_be32(&tcp->tcp_seq));
+}
+
+// ### END - MPSDN MODIFICATION ###

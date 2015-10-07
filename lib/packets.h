@@ -691,4 +691,10 @@ void packet_set_sctp_port(struct ofpbuf *, ovs_be16 src, ovs_be16 dst);
 void packet_format_tcp_flags(struct ds *, uint16_t);
 const char *packet_tcp_flag_to_string(uint32_t flag);
 
+// ###BEGIN - MPSDN MODIFICATION ###
+uint8_t get_ip_proto(const struct ofpbuf *data, size_t len);
+unsigned int get_tcp_payload_size(struct ofpbuf *packet);
+uint32_t get_tcp_seq(struct ofpbuf *packet);
+// ###END - MPSDN MODIFICATION ###
+
 #endif /* packets.h */

@@ -7171,6 +7171,7 @@ ofputil_decode_group_mod(const struct ofp_header *oh,
             }
             break;
         case OFPGT11_SELECT:
+        case OFPGT11_REORDERING:
             break;
         case OFPGT11_FF:
             if (!ofputil_bucket_has_liveness(bucket)) {

@@ -1095,10 +1095,10 @@ struct ofputil_group_stats {
 struct ofputil_group_features {
     uint32_t  types;           /* Bitmap of OFPGT_* values supported. */
     uint32_t  capabilities;    /* Bitmap of OFPGFC12_* capability supported. */
-    uint32_t  max_groups[4];   /* Maximum number of groups for each type. */
+    uint32_t  max_groups[5];   /* Maximum number of groups for each type. */
 
     /* Bitmaps of OFPAT_* that are supported.  OF1.2+ actions only. */
-    uint32_t  actions[4];
+    uint32_t  actions[5];
 };
 
 /* Group desc reply, independent of protocol. */

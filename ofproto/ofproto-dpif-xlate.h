@@ -49,8 +49,11 @@ struct xlate_out {
      * set. */
     struct flow_wildcards wc;
 
+    // ###BEGIN - MPSDN MODIFICATION ###
     bool tcp_reordering;
-    bool daps;
+    bool mpsdn;
+    // ###END - MPSDN MODIFICATION ###
+
     enum slow_path_reason slow; /* 0 if fast path may be used. */
     bool fail_open;             /* Initial rule is fail open? */
     bool has_learn;             /* Actions include NXAST_LEARN? */
@@ -73,8 +76,6 @@ struct xlate_in {
     /* The packet corresponding to 'flow', or a null pointer if we are
      * revalidating without a packet to refer to. */
     const struct ofpbuf *packet;
-
-    struct ofpbuf *pkt;
 
     /* Should OFPP_NORMAL update the MAC learning table?  Should "learn"
      * actions update the flow table?
