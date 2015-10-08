@@ -1197,7 +1197,7 @@ dpif_execute_with_help(struct dpif *dpif, struct dpif_execute *execute)
     if(execute->tcp_reordering){
         odp_execute_buffer_actions(&aux, execute->packet, false, &execute->md,
                             execute->actions, execute->actions_len,
-                            dpif_execute_helper_cb, execute->in_port);
+                            dpif_execute_helper_cb, execute->in_port, execute->flow_id);
     }
     else if(execute->mpsdn){
         odp_execute_mpsdn(&aux, execute->packet, false, &execute->md,

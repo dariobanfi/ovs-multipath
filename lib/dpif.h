@@ -586,10 +586,11 @@ struct dpif_execute {
     size_t actions_len;             /* Length of 'actions' in bytes. */
     struct ofpbuf *packet;          /* Packet to execute. */
     struct pkt_metadata md;         /* Packet metadata. */
-    bool tcp_reordering;
-    uint32_t in_port;
     // ### BEGIN - MPSDN MODIFICATION ###
     bool mpsdn;
+    bool tcp_reordering;
+    uint32_t in_port;
+    uint32_t flow_id;
     // ### END - MPSDN MODIFICATION ###
 
     /* Some dpif providers do not implement every action.  The Linux kernel

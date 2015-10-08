@@ -1035,8 +1035,8 @@ group_best_live_bucket(const struct xlate_ctx *ctx,
 
     ctx->xout->slow |= SLOW_ACTION;
 
-    return weighted_probabilistic_switching(ctx, group);
-    // return weighted_rr_switching(ctx, group);
+    // return weighted_probabilistic_switching(ctx, group);
+    return weighted_rr_switching(ctx, group);
 }
 
 // ###END - MPSDN MODIFICATION ###

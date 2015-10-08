@@ -177,6 +177,8 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/rconn.h \
 	lib/reconnect.c \
 	lib/reconnect.h \
+	lib/reorderingbuf.c \
+	lib/reorderingbuf.h \
 	lib/sat-math.h \
 	lib/seq.c \
 	lib/seq.h \

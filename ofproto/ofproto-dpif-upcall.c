@@ -904,6 +904,9 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
     size_t n_ops, i;
     unsigned int flow_limit;
     bool fail_open, may_put;
+    // ### BEGIN - MPSDN MODIFICATION ###
+    uint32_t hash;
+    // ### END - MPSDN MODIFICATION ####
 
     atomic_read(&udpif->flow_limit, &flow_limit);
     may_put = udpif_get_n_flows(udpif) < flow_limit;
@@ -1059,6 +1062,10 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
             op->u.execute.needs_help = (miss->xout.slow & SLOW_ACTION) != 0;
             // ###BEGIN - MPSDN MODIFICATION ###
             op->u.execute.tcp_reordering = miss->xout.tcp_reordering;
+            if(miss->xout.tcp_reordering){
+                hash = flow_hash_5tuple(&miss->flow, 0);
+                op->u.execute.flow_id = hash;
+            }
             op->u.execute.in_port = miss->flow.in_port.ofp_port;
             op->u.execute.mpsdn = miss->xout.mpsdn;
             // ###END - MPSDN MODIFICATION ###

@@ -32,7 +32,7 @@
 #include "util.h"
 #include "ofp-print.h"
 #include "dynamic-string.h"
-
+#include "reorderingbuf.h"
 
 static void
 odp_eth_set_addrs(struct ofpbuf *packet,
@@ -294,223 +294,161 @@ static struct ofpbuf *minibuffer[1000];
 pthread_mutex_t mutex_lock;
     
 
-void insert_descending_order(struct ofpbuf *pkt){
-
-    int i, index;
-    uint32_t seq_buf, seq_new;
-
-    pthread_mutex_lock(&mutex_lock);
-    index = 0;
-    if(inserted_items == 0){
-        minibuffer[0] = pkt;
-    }
-    else{
-        seq_buf = get_tcp_seq(minibuffer[index]);
-        seq_new = get_tcp_seq(pkt);
-        // Find the correct position for the item
-        while((seq_new < seq_buf) && (index<inserted_items)){
-            index++;
-            if(minibuffer[index])
-                seq_buf = get_tcp_seq(minibuffer[index]);
-
-        }
-        // Shift the elements to the right
-        for(i=inserted_items;i>index;i--){
-            minibuffer[i] = minibuffer[i-1];
-        }
-        minibuffer[index] = pkt;
-    }
-
-    inserted_items++;
-    pthread_mutex_unlock(&mutex_lock);
-}
 
 
-void update_expected_packet(struct ofpbuf *packet){
-    unsigned int size;
-    uint8_t tcp_flags;
-    struct tcp_header *tcp;
-
-    tcp = ofpbuf_l4(packet);
-    tcp_flags = TCP_FLAGS(tcp->tcp_ctl);    
-    size = get_tcp_payload_size(packet);
-
-    if(tcp_flags & TCP_FIN){
-        syslog(LOG_INFO, "packet above was FIN");
-        expected_seqnum +=size + 1;
-    }
-    else{
-        expected_seqnum += size;
-    }
-}
-
-int get_next_seqnum(int seq, struct ofpbuf *packet){
-    unsigned int size;
-    uint8_t tcp_flags;
-    struct tcp_header *tcp;
-
-    tcp = ofpbuf_l4(packet);
-    tcp_flags = TCP_FLAGS(tcp->tcp_ctl);    
-    size = get_tcp_payload_size(packet);
-
-    if(tcp_flags & TCP_FIN){
-        syslog(LOG_INFO, "packet above was FIN");
-        return seq + size + 1;
-    }
-    else{
-        return seq + size;
-    }
-}
-
-
-int xxxx = 0;
 void
 odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
                     struct pkt_metadata *md,
                     const struct nlattr *actions, size_t actions_len,
-                    odp_execute_cb dp_execute_action, uint32_t in_port)
+                    odp_execute_cb dp_execute_action, uint32_t in_port, uint32_t flow_id)
 {
-    struct ofpbuf *buf_pkt;
     uint8_t tcp_flags;
     struct tcp_header *tcp;
     uint32_t seq;
     int i;
     uint32_t seq_work;
 
-    if(packet && get_ip_proto(ofpbuf_data(packet), ofpbuf_size(packet)) == IPPROTO_UDP){
-        syslog(LOG_INFO, "pkt %d coming from %" PRIu32, xxxx, in_port);
-        xxxx++;
-    }       
- 
+
+
+    struct ofpbuf *out_packets[MAX_RDB_SIZE];
+    struct ofpbuf *buf_pkt;
+    int out_packets_size;
+
     if(packet && get_ip_proto(ofpbuf_data(packet), ofpbuf_size(packet)) == IPPROTO_TCP){
-                
-
-        tcp = ofpbuf_l4(packet);
-        tcp_flags = TCP_FLAGS(tcp->tcp_ctl);    
-        seq = get_tcp_seq(packet);
 
 
-
-        if (tcp_flags & TCP_SYN){
-            pthread_mutex_lock(&mutex_lock);
-            expected_seqnum = seq+1;
-            pthread_mutex_unlock(&mutex_lock);
-
-            syslog(LOG_INFO, "SYN_seq %"PRIu32 " new_expected %"PRIu32 " size %d" , seq, expected_seqnum, inserted_items);
-            odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                  dp_execute_action, false);
-            pthread_mutex_lock(&mutex_lock);
-            inserted_items = 0;
-            pthread_mutex_unlock(&mutex_lock);
-
-            // TODO: delete buffer ofpbufs here
-            return;
+        out_packets_size = get_packet_list(out_packets, packet, flow_id);
+        syslog(LOG_INFO, "%d packets to be send this round", out_packets_size);
+        for(i=0; i<out_packets_size;i++){
+            odp_execute_actions__(dp, out_packets[i], steal, md, actions, actions_len,
+                  dp_execute_action, false);            
         }
 
+        // tcp = ofpbuf_l4(packet);
+        // tcp_flags = TCP_FLAGS(tcp->tcp_ctl);    
+        // seq = get_tcp_seq(packet);
 
 
-        if(seq <= expected_seqnum){
-            syslog(LOG_INFO, "sending %"PRIu32 " expected %" PRIu32 " port %"PRIu32 " size %d", seq, expected_seqnum, in_port, inserted_items);
+        // if (tcp_flags & TCP_SYN){
+        //     pthread_mutex_lock(&mutex_lock);
+        //     expected_seqnum = seq+1;
+        //     pthread_mutex_unlock(&mutex_lock);
 
-            odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                  dp_execute_action, false);
+        //     syslog(LOG_INFO, "SYN_seq %"PRIu32 " new_expected %"PRIu32 " size %d" , seq, expected_seqnum, inserted_items);
+            // odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+            //       dp_execute_action, false);
+        //     pthread_mutex_lock(&mutex_lock);
+        //     inserted_items = 0;
+        //     pthread_mutex_unlock(&mutex_lock);
 
-            if(seq == expected_seqnum){
-                pthread_mutex_lock(&mutex_lock);
-                expected_seqnum = get_next_seqnum(expected_seqnum, packet);
-                pthread_mutex_unlock(&mutex_lock);
-            }
-
-
-            // Check if there are packets waiting to be sent
-            int removed_items = 0;
-            for(i=inserted_items-1;i>= 0;i--){
-                seq_work = get_tcp_seq(minibuffer[i]);
+        //     // TODO: delete buffer ofpbufs here
+        //     return;
+        // }
 
 
-                if(seq_work <= expected_seqnum){
-                    syslog(LOG_INFO, "outbuffing %" PRIu32 " expected %" PRIu32 " size %d", seq_work, expected_seqnum, inserted_items - removed_items);
-                    removed_items++;
-                    odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
-                        dp_execute_action, false);
-                    if(seq_work == expected_seqnum){
-                        pthread_mutex_lock(&mutex_lock);
-                        expected_seqnum = get_next_seqnum(expected_seqnum, minibuffer[i]);
-                        pthread_mutex_unlock(&mutex_lock);
-                    }
 
-                }
-            }
-            pthread_mutex_lock(&mutex_lock);
-            inserted_items = inserted_items - removed_items;
-            pthread_mutex_unlock(&mutex_lock);
+        // if(seq <= expected_seqnum){
+            // syslog(LOG_INFO, "sending %"PRIu32 " expected %" PRIu32 " port %"PRIu32 " size %d", seq, expected_seqnum, in_port, inserted_items);
 
-        }
-        //Buffer full
-        else if(inserted_items<400){
-            syslog(LOG_INFO, "buffering %"PRIu32 " expected %" PRIu32 " port %"PRIu32 " size %d", seq, expected_seqnum, in_port, inserted_items);
-            buf_pkt = ofpbuf_clone(packet);
-            insert_descending_order(buf_pkt);
-        }
+            // odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+            //       dp_execute_action, false);
 
-        else{
-            syslog(LOG_INFO, "!! -- BUFFER FULL -- !!");
-            seq_work = get_tcp_seq(minibuffer[inserted_items-1]);
+        //     if(seq == expected_seqnum){
+        //         pthread_mutex_lock(&mutex_lock);
+        //         expected_seqnum = get_next_seqnum(expected_seqnum, packet);
+        //         pthread_mutex_unlock(&mutex_lock);
+        //     }
 
-            // If inc packet has smallest seq
-            if(seq<seq_work){
-                syslog(LOG_INFO, "resetting %" PRIu32 " - sending out latest packet and emptying buffer", seq);
-                // Send out
-                odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-                    dp_execute_action, false);
 
-                for(i=inserted_items-1;i>= 0;i--){
-                    seq_work = get_tcp_seq(minibuffer[i]);
-                    syslog(LOG_INFO, "resetting %" PRIu32, seq_work);
-                    odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
-                        dp_execute_action, false);
-                    if(i==0)
-                        expected_seqnum = get_tcp_seq(minibuffer[i])+1448;
-                }
+        //     // Check if there are packets waiting to be sent
+        //     int removed_items = 0;
+        //     for(i=inserted_items-1;i>= 0;i--){
+        //         seq_work = get_tcp_seq(minibuffer[i]);
 
-                pthread_mutex_lock(&mutex_lock);
-                inserted_items=0;
-                pthread_mutex_unlock(&mutex_lock);
 
-            }
-            // Buf packet is smaller
-            else{
+        //         if(seq_work <= expected_seqnum){
+        //             syslog(LOG_INFO, "outbuffing %" PRIu32 " expected %" PRIu32 " size %d", seq_work, expected_seqnum, inserted_items - removed_items);
+        //             removed_items++;
+        //             odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
+        //                 dp_execute_action, false);
+        //             if(seq_work == expected_seqnum){
+        //                 pthread_mutex_lock(&mutex_lock);
+        //                 expected_seqnum = get_next_seqnum(expected_seqnum, minibuffer[i]);
+        //                 pthread_mutex_unlock(&mutex_lock);
+        //             }
 
-                syslog(LOG_INFO, "resetting %" PRIu32 " - sending lowest buf packet and emptying", get_tcp_seq(minibuffer[inserted_items-1]));
-                odp_execute_actions__(dp, minibuffer[inserted_items-1], steal, md, actions, actions_len,
-                    dp_execute_action, false);
+        //         }
+        //     }
+        //     pthread_mutex_lock(&mutex_lock);
+        //     inserted_items = inserted_items - removed_items;
+        //     pthread_mutex_unlock(&mutex_lock);
+
+        // }
+        // //Buffer full
+        // else if(inserted_items<400){
+        //     syslog(LOG_INFO, "buffering %"PRIu32 " expected %" PRIu32 " port %"PRIu32 " size %d", seq, expected_seqnum, in_port, inserted_items);
+        //     buf_pkt = ofpbuf_clone(packet);
+        //     insert_descending_order(buf_pkt);
+        // }
+
+        // else{
+        //     syslog(LOG_INFO, "!! -- BUFFER FULL -- !!");
+        //     seq_work = get_tcp_seq(minibuffer[inserted_items-1]);
+
+        //     // If inc packet has smallest seq
+        //     if(seq<seq_work){
+        //         syslog(LOG_INFO, "resetting %" PRIu32 " - sending out latest packet and emptying buffer", seq);
+        //         // Send out
+        //         odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
+        //             dp_execute_action, false);
+
+        //         for(i=inserted_items-1;i>= 0;i--){
+        //             seq_work = get_tcp_seq(minibuffer[i]);
+        //             syslog(LOG_INFO, "resetting %" PRIu32, seq_work);
+        //             odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
+        //                 dp_execute_action, false);
+        //             if(i==0)
+        //                 expected_seqnum = get_tcp_seq(minibuffer[i])+1448;
+        //         }
+
+        //         pthread_mutex_lock(&mutex_lock);
+        //         inserted_items=0;
+        //         pthread_mutex_unlock(&mutex_lock);
+
+        //     }
+        //     // Buf packet is smaller
+        //     else{
+
+        //         syslog(LOG_INFO, "resetting %" PRIu32 " - sending lowest buf packet and emptying", get_tcp_seq(minibuffer[inserted_items-1]));
+        //         odp_execute_actions__(dp, minibuffer[inserted_items-1], steal, md, actions, actions_len,
+        //             dp_execute_action, false);
             
-                pthread_mutex_lock(&mutex_lock);
-                inserted_items--;
-                pthread_mutex_unlock(&mutex_lock);
+        //         pthread_mutex_lock(&mutex_lock);
+        //         inserted_items--;
+        //         pthread_mutex_unlock(&mutex_lock);
 
               
-                buf_pkt = ofpbuf_clone(packet);
-                insert_descending_order(buf_pkt);
+        //         buf_pkt = ofpbuf_clone(packet);
+        //         insert_descending_order(buf_pkt);
 
-                for(i=inserted_items-1;i>= 0;i--){
-                    seq_work = get_tcp_seq(minibuffer[i]);
-                    syslog(LOG_INFO, "resetting %" PRIu32, seq_work);
-                    odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
-                        dp_execute_action, false);
-                    if(i==0)
-                        expected_seqnum = get_tcp_seq(minibuffer[i])+1448;
+        //         for(i=inserted_items-1;i>= 0;i--){
+        //             seq_work = get_tcp_seq(minibuffer[i]);
+        //             syslog(LOG_INFO, "resetting %" PRIu32, seq_work);
+        //             odp_execute_actions__(dp, minibuffer[i], steal, md, actions, actions_len,
+        //                 dp_execute_action, false);
+        //             if(i==0)
+        //                 expected_seqnum = get_tcp_seq(minibuffer[i])+1448;
 
-                }
+        //         }
 
-                pthread_mutex_lock(&mutex_lock);
-                inserted_items=0;
-                pthread_mutex_unlock(&mutex_lock);
-            }
+        //         pthread_mutex_lock(&mutex_lock);
+        //         inserted_items=0;
+        //         pthread_mutex_unlock(&mutex_lock);
+        //     }
 
-            expected_seqnum += (get_tcp_payload_size(packet)*50);
+        //     expected_seqnum += (get_tcp_payload_size(packet)*50);
 
-        }
+        // }
     }
 
     // Not TCP, just send out
@@ -538,6 +476,7 @@ odp_execute_actions(void *dp, struct ofpbuf *packet, bool steal,
 
     odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
                           dp_execute_action, false);
+    
     if (!actions_len && steal) {
         /* Drop action. */
         ofpbuf_delete(packet);
@@ -553,7 +492,7 @@ odp_execute_mpsdn(void *dp, struct ofpbuf *packet, bool steal,
 {
 
     odp_execute_actions__(dp, packet, steal, md, actions, actions_len,
-      dp_execute_action, false);
+        dp_execute_action, false);
 
     if (!actions_len && steal) {
         /* Drop action. */
