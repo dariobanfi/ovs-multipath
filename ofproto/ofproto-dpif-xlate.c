@@ -946,53 +946,34 @@ group_first_live_bucket(const struct xlate_ctx *ctx,
 
 
 // ###BEGIN - MPSDN MODIFICATION ###
-pthread_mutex_t mutex_lock;
+static int wrr_counter = 0;
+static int wrr_chosen_bucket = 0;
 
-static int counter = 0;
-static int chosen_bucket = 0;
+
 static const struct ofputil_bucket *
 weighted_rr_switching(const struct xlate_ctx *ctx,
     const struct group_dpif *group){
 
-
-    int j;
+    int bucket_index;
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
-
-    if(chosen_bucket == 0 && (counter % 100 == 0)){
-        pthread_mutex_lock(&mutex_lock);
-        chosen_bucket = 1;
-        counter = 0;
-        // usleep(10000);
-        pthread_mutex_unlock(&mutex_lock);
-
-    }
-    else if(chosen_bucket == 1 && (counter % 100 == 0)){
-        pthread_mutex_lock(&mutex_lock);
-        chosen_bucket = 0;
-        counter = 0;
-        // usleep(10000);
-        pthread_mutex_unlock(&mutex_lock);
-    }
-    pthread_mutex_lock(&mutex_lock);
-    counter++;
-    pthread_mutex_unlock(&mutex_lock);
     
 
-    j = 0;
+    bucket_index = 0;
     group_dpif_get_buckets(group, &buckets);
     LIST_FOR_EACH (bucket, list_node, buckets) {
-        if(chosen_bucket==j){
-            if (bucket_is_alive(ctx, bucket, 0)) {
-                return bucket;
+        if(wrr_chosen_bucket==bucket_index && bucket_is_alive(ctx, bucket, 0)){
+            wrr_counter++;
 
+            if((wrr_counter % bucket->weight) == 0){
+                wrr_chosen_bucket = (wrr_chosen_bucket+ 1) % list_size(buckets);
+                wrr_counter = 0;
             }
-            else{
-                syslog(LOG_INFO, "not supposed to happen");
-                // TODO: Randomly choose another bucker for fault-tolerance
-            }
+
+            return bucket;
         }
-        j++;
+
+        bucket_index++;
     }
 
     return bucket;
@@ -1980,7 +1961,6 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     }
 
     if (xport->peer) {
-        syslog(LOG_INFO, "Peer");
         const struct xport *peer = xport->peer;
         struct flow old_flow = ctx->xin->flow;
         enum slow_path_reason special;
@@ -2047,7 +2027,6 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     }
 
     if (xport->is_tunnel) {
-        syslog(LOG_INFO, "Tunnel");
          /* Save tunnel metadata so that changes made due to
           * the Logical (tunnel) Port are not visible for any further
           * matches, while explicit set actions on tunnel metadata are.
@@ -2097,7 +2076,6 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
                                               &ctx->xout->wc);
 
         if (ctx->use_recirc) {
-            syslog(LOG_INFO, "Recirc");
             struct ovs_action_hash *act_hash;
             struct xlate_recirc *xr = &ctx->recirc;
 

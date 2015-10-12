@@ -966,13 +966,10 @@ handle_upcalls(struct handler *handler, struct hmap *misses,
         // Disabling side-effects actions for multipath
         // packets so that they don't mess up the round-robin
         // counters.
-        if (miss->xout.slow) {
-            if(!miss->xout.mpsdn){
-                struct xlate_in xin;
-
-                xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL, 0, packet);
-                xlate_actions_for_side_effects(&xin);
-            }
+        if (miss->xout.slow && !miss->xout.mpsdn) {
+            struct xlate_in xin;
+            xlate_in_init(&xin, miss->ofproto, &miss->flow, NULL, 0, packet);
+            xlate_actions_for_side_effects(&xin);
         }
         // ###END - MPSDN MODIFICATION ###
 
@@ -1294,7 +1291,7 @@ revalidate_ukey(struct udpif *udpif, struct udpif_key *ukey,
     }
 
     if (udpif->need_revalidate) {
-        xlate_cache_clear(ukey->xcache);
+        xlatee_cache_clear(ukey->xcache);
     }
     if (!ukey->xcache) {
         ukey->xcache = xlate_cache_new();
