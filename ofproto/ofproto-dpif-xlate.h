@@ -197,5 +197,6 @@ void xlate_push_stats(struct xlate_cache *, bool may_learn,
                       const struct dpif_flow_stats *);
 void xlate_cache_clear(struct xlate_cache *);
 void xlate_cache_delete(struct xlate_cache *);
+struct wrr_counter *get_wrr_counter(uint32_t flow_id);
 
 #endif /* ofproto-dpif-xlate.h */

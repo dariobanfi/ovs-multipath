@@ -1291,7 +1291,7 @@ revalidate_ukey(struct udpif *udpif, struct udpif_key *ukey,
     }
 
     if (udpif->need_revalidate) {
-        xlatee_cache_clear(ukey->xcache);
+        xlate_cache_clear(ukey->xcache);
     }
     if (!ukey->xcache) {
         ukey->xcache = xlate_cache_new();

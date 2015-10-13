@@ -52,6 +52,8 @@
 #include "ofproto/ofproto-provider.h"
 #include "tunnel.h"
 #include "vlog.h"
+#include "uthash.h"
+
 
 COVERAGE_DEFINE(xlate_actions);
 COVERAGE_DEFINE(xlate_actions_oversize);
@@ -287,6 +289,19 @@ struct xc_entry {
         } fin;
     } u;
 };
+
+
+// ### BEGIN - MPSDN MODIFICATION ###
+struct wrr_counter {
+    uint32_t flow_id;    /* key */
+    uint32_t counter;
+    int chosen_bucket;
+    UT_hash_handle hh;  /* makes this structure hashable */
+};
+
+struct wrr_counter *wrr_counters = NULL;
+// ### END - MPSDN MODIFICATION ###
+
 
 #define XC_ENTRY_FOR_EACH(entry, entries, xcache)               \
     entries = xcache->entries;                                  \
@@ -946,8 +961,20 @@ group_first_live_bucket(const struct xlate_ctx *ctx,
 
 
 // ###BEGIN - MPSDN MODIFICATION ###
-static int wrr_counter = 0;
-static int wrr_chosen_bucket = 0;
+struct wrr_counter *get_wrr_counter(uint32_t flow_id) {
+    struct wrr_counter *p;
+    // Getting wrr_counter pointer
+    HASH_FIND_INT( wrr_counters, &flow_id, p );
+    if(!p){
+        p = (struct wrr_counter*)malloc(sizeof(struct wrr_counter));
+        p->flow_id = flow_id;
+        HASH_ADD_INT( wrr_counters, flow_id, p);  /* id: name of key field */
+        p->counter = 0;
+        p->chosen_bucket = 0;
+    }
+
+    return p;
+}
 
 
 static const struct ofputil_bucket *
@@ -957,19 +984,25 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
     int bucket_index;
     const struct ofputil_bucket *bucket = NULL;
     const struct list *buckets;
-    
+    uint32_t hash;
+    struct wrr_counter * wrr_state;
+
+
+    hash = flow_hash_5tuple(&ctx->xin->flow, 0);
+    wrr_state = get_wrr_counter(hash);
 
     bucket_index = 0;
     group_dpif_get_buckets(group, &buckets);
     LIST_FOR_EACH (bucket, list_node, buckets) {
-        if(wrr_chosen_bucket==bucket_index && bucket_is_alive(ctx, bucket, 0)){
-            wrr_counter++;
+        if(wrr_state->chosen_bucket==bucket_index && bucket_is_alive(ctx, bucket, 0)){
+            wrr_state->counter++;
 
-            if((wrr_counter % bucket->weight) == 0){
-                wrr_chosen_bucket = (wrr_chosen_bucket+ 1) % list_size(buckets);
-                wrr_counter = 0;
+            if((wrr_state->counter % bucket->weight) == 0){
+                // Iterating over existing buckets with modulo operatiom
+                wrr_state->chosen_bucket = (wrr_state->chosen_bucket + 1) % list_size(buckets);
+                wrr_state->counter = 0;
             }
-
+            syslog(LOG_INFO, "Sending over %d flow_id %"PRIu32 " counter %d", wrr_state->chosen_bucket, wrr_state->flow_id, wrr_state->counter );
             return bucket;
         }
 
