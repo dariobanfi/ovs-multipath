@@ -301,7 +301,7 @@ odp_execute_buffer_actions(void *dp, struct ofpbuf *packet, bool steal,
 
     // If it's TCP, getting the packet queue from buffer
     if(packet && get_ip_proto(ofpbuf_data(packet), ofpbuf_size(packet)) == IPPROTO_TCP){
-        out_packets_size = get_packet_list(out_packets, packet, flow_id);
+        out_packets_size = get_packet_list(out_packets, packet, flow_id, in_port);
         
         for(i=0; i<out_packets_size;i++){
             // Buffering only the packet and not the other vars as they don't seem to be relevant

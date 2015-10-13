@@ -1002,7 +1002,6 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
                 wrr_state->chosen_bucket = (wrr_state->chosen_bucket + 1) % list_size(buckets);
                 wrr_state->counter = 0;
             }
-            syslog(LOG_INFO, "Sending over %d flow_id %"PRIu32 " counter %d", wrr_state->chosen_bucket, wrr_state->flow_id, wrr_state->counter );
             return bucket;
         }
 
