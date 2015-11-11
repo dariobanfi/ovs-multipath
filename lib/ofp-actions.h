@@ -447,9 +447,6 @@ ofpact_nest_get_action_len(const struct ofpact_nest *on)
     return on->ofpact.len - offsetof(struct ofpact_nest, actions);
 }
 
-void
-copy_all(struct ofpbuf *out, struct ofpbuf *in);
-
 void ofpacts_execute_action_set(struct ofpbuf *action_list,
                                 const struct ofpbuf *action_set);
 

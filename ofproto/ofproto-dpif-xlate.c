@@ -187,7 +187,7 @@ struct xlate_ctx {
     /* The rule that we are currently translating, or NULL. */
     struct rule_dpif *rule;
 
-    /* Resubmgit statistics, via xlate_table_action(). */
+    /* Resubmit statistics, via xlate_table_action(). */
     int recurse;                /* Current resubmit nesting depth. */
     int resubmits;              /* Total number of resubmits. */
     bool in_group;              /* Currently translating ofgroup, if true. */
@@ -348,8 +348,6 @@ static bool dscp_from_skb_priority(const struct xport *, uint32_t skb_priority,
 
 static struct xc_entry *xlate_cache_add_entry(struct xlate_cache *xc,
                                               enum xc_type type);
-
-    
 
 void
 xlate_ofproto_set(struct ofproto_dpif *ofproto, const char *name,
@@ -1929,8 +1927,6 @@ process_special(struct xlate_ctx *ctx, const struct flow *flow,
     }
 }
 
-
-
 /* Counts and returns the number of OVS_ACTION_ATTR_OUTPUT actions in
  * 'odp_actions'. */
 static int
@@ -1948,7 +1944,6 @@ count_output_actions(const struct ofpbuf *odp_actions)
     }
     return n;
 }
-
 
 static void
 compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
@@ -2129,7 +2124,6 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         ctx->sflow_odp_port = odp_port;
         ctx->sflow_n_outputs++;
         ctx->xout->nf_output_iface = ofp_port;
-
     }
 
  out:
@@ -2372,7 +2366,6 @@ xlate_ff_group(struct xlate_ctx *ctx, struct group_dpif *group)
         xlate_group_bucket(ctx, bucket);
     }
 }
-
 
 static void
 xlate_select_group(struct xlate_ctx *ctx, struct group_dpif *group)

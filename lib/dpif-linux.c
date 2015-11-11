@@ -18,9 +18,6 @@
 
 #include "dpif-linux.h"
 
-#include <syslog.h>
-#include "ofp-print.h"
-
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -1310,8 +1307,6 @@ dpif_linux_encode_execute(int dp_ifindex, const struct dpif_execute *d_exec,
     struct ovs_header *k_exec;
     size_t key_ofs;
 
-
-
     ofpbuf_prealloc_tailroom(buf, (64
                                    + ofpbuf_size(d_exec->packet)
                                    + ODP_KEY_METADATA_SIZE
@@ -1342,11 +1337,9 @@ dpif_linux_execute__(int dp_ifindex, const struct dpif_execute *execute)
     struct ofpbuf request;
     int error;
 
-
     ofpbuf_use_stub(&request, request_stub, sizeof request_stub);
     dpif_linux_encode_execute(dp_ifindex, execute, &request);
     error = nl_transact(NETLINK_GENERIC, &request, NULL);
-
     ofpbuf_uninit(&request);
 
     return error;
@@ -1395,7 +1388,6 @@ dpif_linux_operate__(struct dpif_linux *dpif, struct dpif_op **ops, size_t n_ops
 
         ofpbuf_use_stub(&aux->reply, aux->reply_stub, sizeof aux->reply_stub);
         aux->txn.reply = NULL;
-
 
         switch (op->type) {
         case DPIF_OP_FLOW_PUT:
@@ -1712,7 +1704,6 @@ static int
 parse_odp_packet(struct ofpbuf *buf, struct dpif_upcall *upcall,
                  int *dp_ifindex)
 {
-
     static const struct nl_policy ovs_packet_policy[] = {
         /* Always present. */
         [OVS_PACKET_ATTR_PACKET] = { .type = NL_A_UNSPEC,

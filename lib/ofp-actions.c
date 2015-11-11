@@ -1447,16 +1447,6 @@ ofpacts_copy_all(struct ofpbuf *out, const struct ofpbuf *in,
     }
 }
 
-void
-copy_all(struct ofpbuf *out, struct ofpbuf *in)
-{
-    const struct ofpact *a;
-
-    OFPACT_FOR_EACH (a, ofpbuf_data(in), ofpbuf_size(in)) {
-        ofpact_copy(out, a);
-    }
-}
-
 /* Reads 'action_set', which contains ofpacts accumulated by
  * OFPACT_WRITE_ACTIONS instructions, and writes equivalent actions to be
  * executed directly into 'action_list'.  (These names correspond to the
