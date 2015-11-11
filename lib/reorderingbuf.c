@@ -79,14 +79,6 @@ void delete_tcp_buf(struct tcp_buf *tcp_buffer){
             syslog(LOG_INFO, "FATAL ERROR! BUFF WAS NULL index %d", i);
         }
         else if(rdb[i] == tcp_buffer){
-            // TODO: Not sure it is needed
-
-            // Deleting packets
-            // for(j=0;j<PKT_BUF_MAXSIZE;j++){
-                // if(tcp_buffer->buffer[j]){
-                    // ofpbuf_delete(tcp_buffer->buffer[j]); 
-                // }
-            // }
             del_index = i;
             free(tcp_buffer);
             break;
