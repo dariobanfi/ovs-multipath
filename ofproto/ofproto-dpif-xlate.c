@@ -994,7 +994,6 @@ weighted_rr_switching(const struct xlate_ctx *ctx,
     LIST_FOR_EACH (bucket, list_node, buckets) {
         if(wrr_state->chosen_bucket==bucket_index && bucket_is_alive(ctx, bucket, 0)){
             wrr_state->counter++;
-
             if((wrr_state->counter % bucket->weight) == 0){
                 // Iterating over existing buckets with modulo operatiom
                 wrr_state->chosen_bucket = (wrr_state->chosen_bucket + 1) % list_size(buckets);
@@ -1043,7 +1042,7 @@ group_best_live_bucket(const struct xlate_ctx *ctx,
                    const struct group_dpif *group)
 {   
 
-
+    // Using SLOW context to avoid kernel caching
     ctx->xout->slow |= SLOW_ACTION;
 
     // return weighted_probabilistic_switching(ctx, group);
