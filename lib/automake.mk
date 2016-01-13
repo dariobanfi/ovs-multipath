@@ -224,8 +224,8 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/unicode.h \
 	lib/unixctl.c \
 	lib/unixctl.h \
+	lib/uthash.h \
 	lib/util.c \
-	lib/uthash.c \
 	lib/util.h \
 	lib/uuid.c \
 	lib/uuid.h \
