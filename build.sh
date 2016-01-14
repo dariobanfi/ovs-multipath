@@ -8,9 +8,6 @@ else
 fi
 
 colormake install
-colormake modules_install
-rmmod openvswitch
-depmod -a
 /etc/init.d/openvswitch-switch stop
 /etc/init.d/openvswitch-controller stop
 update-rc.d openvswitch-controller disable
