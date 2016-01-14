@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "ofp-errors.h"
-
+#include <config.h>
 
 /* Max number of TCP reordering buffers in the switch */
 #define OVS_TCP_BUFFER_MAXSIZE 100
