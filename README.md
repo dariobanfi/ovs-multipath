@@ -19,12 +19,12 @@ https://github.com/openvswitch/ovs/blob/master/INSTALL.md
 
 Multipath flow rules can be set up with the following command:
 
-`` ovs-ofctl -O OpenFlow13 add-group s1 group_id=11,type=select,bucket=weight:10,output:1,bucket=weight:20,output:2 ``
+`ovs-ofctl -O OpenFlow13 add-group s1 group_id=11,type=select,bucket=weight:10,output:1,bucket=weight:20,output:2`
 
 Reordering flow rules can be set up with the following command:
 
-```ovs-ofctl -O OpenFlow13 add-group s1 group_id=10,type=reordering,bucket=output:3```
-```ovs-ofctl -O OpenFlow13 add-flow s1 in_port=1,actions=group:10```
-```ovs-ofctl -O OpenFlow13 add-flow s1 in_port=2,actions=group:10```
 ```
-
+ovs-ofctl -O OpenFlow13 add-group s1 group_id=10,type=reordering,bucket=output:3
+ovs-ofctl -O OpenFlow13 add-flow s1 in_port=1,actions=group:10
+ovs-ofctl -O OpenFlow13 add-flow s1 in_port=2,actions=group:10
+```
