@@ -11,9 +11,27 @@ It adds a GROUP to the OpenFlow specifications with id: 4
 
 ## Installation instructions
 
-The installation procedure is exactly the same for normal OVS:
+This project has been built on Ubuntu Linux 14 - 16. If you want to use other Linux distributions, make sure to install the matching dependencies.
+The installation procedure is exactly the same for normal OVS. In short:
 
-https://github.com/openvswitch/ovs/blob/master/INSTALL.md
+```
+sudo apt-get install -y git automake autoconf gcc uml-utilities libtool build-essential git pkg-config linux-headers-`uname -r`
+chmod +x boot.sh
+./boot.sh
+./configure
+make && make install
+
+touch /usr/local/etc/ovs-vswitchd.conf
+mkdir -p /usr/local/etc/openvswitch
+ovsdb-tool create /usr/local/etc/openvswitch/conf.db vswitchd/vswitch.ovsschema
+
+ovsdb-server /usr/local/etc/openvswitch/conf.db \
+--remote=punix:/usr/local/var/run/openvswitch/db.sock
+ovs-vsctl --no-wait init
+ovs-vswitchd --pidfile --detach
+```
+
+In case you have problems, this article can help with a step-by-step guide: http://networkstatic.net/installing-and-configuring-openvswitch-on-ubuntu-12-04-precise-pangolin/
 
 ## Usage
 
